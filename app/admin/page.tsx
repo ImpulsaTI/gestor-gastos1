@@ -165,7 +165,7 @@ export default function AdminPage() {
           <div class="grid">
             <div class="section">
               <div class="section-title">FECHA DEL GASTO</div>
-              <div class="section-content">${new Date(expense.fechaGasto).toLocaleDateString("es-AR")}</div>
+              <div class="section-content">${new Date(expense.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC" })}</div>
             </div>
             <div class="section">
               <div class="section-title">FECHA DE CARGA</div>
@@ -623,7 +623,7 @@ export default function AdminPage() {
                   <tbody>
                     ${expenses.map((expense: any) => `
                       <tr>
-                        <td>${new Date(expense.fechaGasto).toLocaleDateString('es-ES')}</td>
+                        <td>${new Date(expense.fechaGasto).toLocaleDateString('es-ES', { timeZone: 'UTC' })}</td>
                         <td><strong>${expense.motivo}</strong></td>
                         <td>${expense.detalle}</td>
                         <td><span class="currency-badge">${expense.moneda}</span></td>
@@ -893,7 +893,7 @@ export default function AdminPage() {
                         </Badge>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        <span>Gasto: {new Date(expense.fechaGasto).toLocaleDateString("es-AR")}</span>
+                        <span>Gasto: {new Date(expense.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC" })}</span>
                         <span>•</span>
                         <span>Cargado: {new Date(expense.fechaCarga).toLocaleDateString("es-AR")}</span>
                         <span>•</span>
@@ -948,7 +948,7 @@ export default function AdminPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Fecha del Gasto</p>
-                  <p className="text-lg">{new Date(selectedExpense.fechaGasto).toLocaleDateString("es-AR")}</p>
+                  <p className="text-lg">{new Date(selectedExpense.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC" })}</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Fecha de Carga</p>
