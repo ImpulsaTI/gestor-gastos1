@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { generateExpenseForRecurring } from '@/lib/recurring'
 
 // Genera los gastos del mes para cada plantilla recurrente activa cuyo
 // "día del mes" ya llegó y que todavía no se generó en el período actual.
@@ -39,38 +40,8 @@ async function handleGenerate(request: NextRequest) {
     const generados: string[] = []
 
     for (const plantilla of candidates) {
-      const montoEnPesos =
-        plantilla.moneda === 'ARS'
-          ? plantilla.monto
-          : plantilla.monto * (plantilla.tipoCambio || 0)
-
       const fechaGasto = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), plantilla.diaDelMes))
-
-      await prisma.$transaction([
-        prisma.expense.create({
-          data: {
-            userId: plantilla.userId,
-            fechaGasto,
-            motivo: plantilla.motivo,
-            detalle: plantilla.detalle,
-            monto: plantilla.monto,
-            montoEnPesos,
-            importeTotal: montoEnPesos,
-            moneda: plantilla.moneda,
-            tipoCambio: plantilla.tipoCambio,
-            canalPago: plantilla.canalPago,
-            canalPagoDetalle: plantilla.canalPagoDetalle,
-            tieneCuotas: false,
-            tarjetaId: plantilla.tarjetaId,
-            recurringExpenseId: plantilla.id,
-          },
-        }),
-        prisma.recurringExpense.update({
-          where: { id: plantilla.id },
-          data: { ultimoPeriodoGenerado: currentPeriod },
-        }),
-      ])
-
+      await generateExpenseForRecurring(plantilla, fechaGasto, currentPeriod)
       generados.push(plantilla.id)
     }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { generateExpenseForRecurring } from '@/lib/recurring'
 
 export async function GET(request: NextRequest) {
   try {
@@ -90,7 +91,17 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({ success: true, recurringExpense })
+    // Generar de inmediato el gasto del período actual, para que se vea
+    // en la tabla general sin tener que esperar al día de cobro configurado.
+    const today = new Date()
+    const currentPeriod = today.toISOString().slice(0, 7)
+    const expense = await generateExpenseForRecurring(recurringExpense, today, currentPeriod)
+
+    return NextResponse.json({
+      success: true,
+      recurringExpense: { ...recurringExpense, ultimoPeriodoGenerado: currentPeriod },
+      expense,
+    })
   } catch (error) {
     console.error('Error al crear gasto recurrente:', error)
     return NextResponse.json(
@@ -163,7 +174,42 @@ export async function PUT(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({ success: true, recurringExpense })
+    // Si ya se generó el gasto del período actual, sincronizar los cambios
+    // (ej: si cambió el precio) para que la tabla general quede consistente.
+    let syncedExpense = null
+    const currentPeriod = new Date().toISOString().slice(0, 7)
+    if (recurringExpense.ultimoPeriodoGenerado === currentPeriod) {
+      const lastExpense = await prisma.expense.findFirst({
+        where: { recurringExpenseId: id },
+        orderBy: { fechaGasto: 'desc' },
+      })
+
+      if (lastExpense) {
+        const newMonto = monto !== undefined ? parseFloat(monto) : lastExpense.monto
+        const newMoneda = moneda !== undefined ? moneda : lastExpense.moneda
+        const newTipoCambio =
+          tipoCambio !== undefined ? (tipoCambio ? parseFloat(tipoCambio) : null) : lastExpense.tipoCambio
+        const newMontoEnPesos = newMoneda === 'ARS' ? newMonto : newMonto * (newTipoCambio || 0)
+
+        syncedExpense = await prisma.expense.update({
+          where: { id: lastExpense.id },
+          data: {
+            ...(motivo !== undefined && { motivo }),
+            ...(detalle !== undefined && { detalle }),
+            monto: newMonto,
+            montoEnPesos: newMontoEnPesos,
+            importeTotal: newMontoEnPesos,
+            moneda: newMoneda,
+            tipoCambio: newTipoCambio,
+            ...(canalPago !== undefined && { canalPago }),
+            ...(canalPagoDetalle !== undefined && { canalPagoDetalle: canalPagoDetalle || null }),
+            ...(tarjetaId !== undefined && { tarjetaId: tarjetaId || null }),
+          },
+        })
+      }
+    }
+
+    return NextResponse.json({ success: true, recurringExpense, syncedExpense })
   } catch (error) {
     console.error('Error al actualizar gasto recurrente:', error)
     return NextResponse.json(

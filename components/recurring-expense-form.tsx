@@ -14,19 +14,29 @@ interface RecurringExpenseFormProps {
   onSubmit: (data: Omit<RecurringExpense, "id" | "userId" | "activo" | "fechaInicio" | "ultimoPeriodoGenerado">) => void
   cards?: Tarjeta[]
   submitting?: boolean
+  initialData?: RecurringExpense
+  isEditing?: boolean
+  onCancel?: () => void
 }
 
-export function RecurringExpenseForm({ onSubmit, cards = [], submitting = false }: RecurringExpenseFormProps) {
+export function RecurringExpenseForm({
+  onSubmit,
+  cards = [],
+  submitting = false,
+  initialData,
+  isEditing = false,
+  onCancel,
+}: RecurringExpenseFormProps) {
   const [formData, setFormData] = useState({
-    motivo: "",
-    detalle: "",
-    monto: "",
-    moneda: "ARS",
-    tipoCambio: "",
-    canalPago: "" as "" | "web" | "local" | "otro",
-    canalPagoDetalle: "",
-    diaDelMes: "1",
-    tarjetaId: "",
+    motivo: initialData?.motivo || "",
+    detalle: initialData?.detalle || "",
+    monto: initialData?.monto?.toString() || "",
+    moneda: initialData?.moneda || "ARS",
+    tipoCambio: initialData?.tipoCambio?.toString() || "",
+    canalPago: (initialData?.canalPago || "") as "" | "web" | "local" | "otro",
+    canalPagoDetalle: initialData?.canalPagoDetalle || "",
+    diaDelMes: initialData?.diaDelMes?.toString() || "1",
+    tarjetaId: initialData?.tarjetaId || "",
   })
 
   const getCanalPagoDetalleConfig = () => {
@@ -68,17 +78,19 @@ export function RecurringExpenseForm({ onSubmit, cards = [], submitting = false 
       tarjetaId: formData.tarjetaId || undefined,
     })
 
-    setFormData({
-      motivo: "",
-      detalle: "",
-      monto: "",
-      moneda: "ARS",
-      tipoCambio: "",
-      canalPago: "",
-      canalPagoDetalle: "",
-      diaDelMes: "1",
-      tarjetaId: "",
-    })
+    if (!isEditing) {
+      setFormData({
+        motivo: "",
+        detalle: "",
+        monto: "",
+        moneda: "ARS",
+        tipoCambio: "",
+        canalPago: "",
+        canalPagoDetalle: "",
+        diaDelMes: "1",
+        tarjetaId: "",
+      })
+    }
   }
 
   return (
@@ -222,9 +234,16 @@ export function RecurringExpenseForm({ onSubmit, cards = [], submitting = false 
         </div>
       )}
 
-      <Button type="submit" className="w-full" disabled={submitting}>
-        {submitting ? "Guardando..." : "Crear Gasto Recurrente"}
-      </Button>
+      <div className="flex gap-2">
+        <Button type="submit" className="flex-1" disabled={submitting}>
+          {submitting ? "Guardando..." : isEditing ? "Guardar Cambios" : "Crear Gasto Recurrente"}
+        </Button>
+        {isEditing && onCancel && (
+          <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
+            Cancelar
+          </Button>
+        )}
+      </div>
     </form>
   )
 }
