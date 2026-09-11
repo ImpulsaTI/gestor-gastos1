@@ -1,0 +1,16 @@
+name: Generar gastos recurrentes
+
+on:
+  schedule:
+    # Todos los días a las 9:00 UTC (6:00 hora Argentina)
+    - cron: "0 9 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar al endpoint de generación
+        run: |
+          curl -sf -X POST "https://gastoscorporativa.up.railway.app/api/recurring-expenses/generate" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
