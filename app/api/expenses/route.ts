@@ -78,6 +78,8 @@ export async function POST(request: NextRequest) {
       documentoTipo,
       tarjetaId,
       unidadDestinoId,
+      esRecurrente,
+      recurringExpenseId,
     } = body;
 
     // Validaciones básicas
@@ -114,21 +116,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('Datos para crear expense:', {
-      userId,
-      fechaGasto: new Date(fechaGasto),
-      motivo,
-      detalle,
-      monto: parseFloat(monto),
-      montoEnPesos: parseFloat(calculatedMontoEnPesos),
-      importeTotal: parseFloat(importeTotal),
-      moneda,
-      tipoCambio: tipoCambio ? parseFloat(tipoCambio) : null,
-      canalPago,
-      canalPagoDetalle,
-      tieneCuotas: Boolean(tieneCuotas),
-      cantidadCuotas: cantidadCuotas ? parseInt(cantidadCuotas) : null
-    });
+    // Si el gasto es recurrente, crear o actualizar su plantilla (RecurringExpense).
+    // Cada gasto que se registra así queda como una nueva línea en el historial
+    // de ese recurrente (no se sobreescribe nada), pero la plantilla guarda los
+    // valores vigentes (motivo/precio/etc.) para que el cron use lo más reciente.
+    let finalRecurringExpenseId: string | null = recurringExpenseId || null;
+
+    if (esRecurrente) {
+      const fecha = new Date(fechaGasto);
+      const diaDelMes = Math.min(fecha.getUTCDate(), 28);
+      const periodo = fecha.toISOString().slice(0, 7);
+
+      const plantillaData = {
+        motivo,
+        detalle,
+        monto: parseFloat(monto),
+        moneda,
+        tipoCambio: tipoCambio ? parseFloat(tipoCambio) : null,
+        canalPago,
+        canalPagoDetalle: canalPagoDetalle || null,
+        diaDelMes,
+        tarjetaId: tarjetaId || null,
+        ultimoPeriodoGenerado: periodo,
+      };
+
+      if (finalRecurringExpenseId) {
+        const plantilla = await prisma.recurringExpense.update({
+          where: { id: finalRecurringExpenseId },
+          data: plantillaData,
+        });
+        finalRecurringExpenseId = plantilla.id;
+      } else {
+        const plantilla = await prisma.recurringExpense.create({
+          data: { ...plantillaData, userId },
+        });
+        finalRecurringExpenseId = plantilla.id;
+      }
+    }
 
     // Usar SQL crudo para insertar con montoEnPesos mientras se resuelve Prisma generate
     const expenseData = {
@@ -148,6 +172,7 @@ export async function POST(request: NextRequest) {
       cantidadCuotas: cantidadCuotas ? parseInt(cantidadCuotas) : null,
       tarjetaId: tarjetaId || null,
       unidadDestinoId: unidadDestinoId || null,
+      recurringExpenseId: finalRecurringExpenseId,
       documento,
       documentoNombre,
       documentoTipo,
@@ -159,7 +184,8 @@ export async function POST(request: NextRequest) {
       INSERT INTO expenses (
         id, "userId", "fechaGasto", motivo, detalle, monto, "montoEnPesos",
         "importeTotal", moneda, "tipoCambio", "canalPago", "canalPagoDetalle",
-        "tieneCuotas", "cantidadCuotas", "tarjetaId", "unidadDestinoId", documento, "documentoNombre",
+        "tieneCuotas", "cantidadCuotas", "tarjetaId", "unidadDestinoId", "recurringExpenseId",
+        documento, "documentoNombre",
         "documentoTipo", "createdAt", "updatedAt"
       ) VALUES (
         ${expenseData.id}, ${expenseData.userId}, ${expenseData.fechaGasto},
@@ -167,7 +193,7 @@ export async function POST(request: NextRequest) {
         ${expenseData.montoEnPesos}, ${expenseData.importeTotal}, ${expenseData.moneda},
         ${expenseData.tipoCambio}, ${expenseData.canalPago}, ${expenseData.canalPagoDetalle},
         ${expenseData.tieneCuotas}, ${expenseData.cantidadCuotas}, ${expenseData.tarjetaId},
-        ${expenseData.unidadDestinoId},
+        ${expenseData.unidadDestinoId}, ${expenseData.recurringExpenseId},
         ${expenseData.documento}, ${expenseData.documentoNombre}, ${expenseData.documentoTipo},
         ${expenseData.createdAt}, ${expenseData.updatedAt}
       ) RETURNING *;

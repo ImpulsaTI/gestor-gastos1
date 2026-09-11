@@ -3,9 +3,8 @@
 import { useState, useEffect } from "react"
 import { ExpenseForm } from "@/components/expense-form"
 import { ExpenseTable } from "@/components/expense-table"
-import { RecurringExpenseForm } from "@/components/recurring-expense-form"
 import type { Expense, Tarjeta, RecurringExpense, Unidad } from "@/lib/types"
-import { Receipt, LogOut, CreditCard, Eye, Download, Plus, Trash2, CalendarDays, X, Repeat, Power, Pencil } from "lucide-react"
+import { Receipt, LogOut, CreditCard, Eye, Download, Plus, Trash2, CalendarDays, X, Repeat, Power, Pencil, History } from "lucide-react"
 import { getCurrentUser, logout } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -22,6 +21,17 @@ type CardSummary = {
   descripcion?: string
   createdAt: string
   tarjeta?: { id: string; ultimos4: string; descripcion?: string }
+}
+
+type HistorialItem = {
+  id: string
+  fechaGasto: string
+  fechaCarga: string
+  monto: number
+  moneda: string
+  importeTotal: number
+  documento?: string | null
+  documentoNombre?: string | null
 }
 
 export default function ExpensesPage() {
@@ -49,8 +59,8 @@ export default function ExpensesPage() {
   // Gastos recurrentes
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([])
   const [showRecurringDialog, setShowRecurringDialog] = useState(false)
-  const [isSavingRecurring, setIsSavingRecurring] = useState(false)
-  const [editingRecurring, setEditingRecurring] = useState<RecurringExpense | null>(null)
+  const [recurringTemplateToEdit, setRecurringTemplateToEdit] = useState<RecurringExpense | null>(null)
+  const [historyDialog, setHistoryDialog] = useState<{ motivo: string; items: HistorialItem[] } | null>(null)
 
   const loadUserExpenses = async (userId: string) => {
     try {
@@ -129,56 +139,27 @@ export default function ExpensesPage() {
     }
   }
 
-  const handleAddRecurring = async (formValues: Omit<RecurringExpense, "id" | "userId" | "activo" | "fechaInicio" | "ultimoPeriodoGenerado">) => {
-    if (!user) return
-    setIsSavingRecurring(true)
-    try {
-      const response = await fetch('/api/recurring-expenses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formValues, userId: user.id }),
-      })
-      const data = await response.json()
-      if (data.success) {
-        setRecurringExpenses(prev => [data.recurringExpense, ...prev])
-        // El gasto del período actual se genera al instante: lo sumamos a la tabla general
-        if (data.expense) {
-          setExpenses(prev => [data.expense, ...prev])
-        }
-      } else {
-        alert('Error: ' + data.error)
-      }
-    } catch {
-      alert('Error de conexión')
-    } finally {
-      setIsSavingRecurring(false)
-    }
+  const handleEditRecurring = (recurring: RecurringExpense) => {
+    // Precarga el gasto recurrente en "Registrar Gasto" para que el usuario
+    // registre un nuevo gasto (con precio/ticket actualizado si cambió algo).
+    setRecurringTemplateToEdit(recurring)
+    setShowRecurringDialog(false)
   }
 
-  const handleUpdateRecurring = async (formValues: Omit<RecurringExpense, "id" | "userId" | "activo" | "fechaInicio" | "ultimoPeriodoGenerado">) => {
-    if (!user || !editingRecurring) return
-    setIsSavingRecurring(true)
+  const handleCancelRecurringEdit = () => setRecurringTemplateToEdit(null)
+
+  const handleViewRecurringHistory = async (recurring: RecurringExpense) => {
+    if (!user) return
     try {
-      const response = await fetch('/api/recurring-expenses', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formValues, id: editingRecurring.id, userId: user.id }),
-      })
+      const response = await fetch(`/api/recurring-expenses/${recurring.id}/history?userId=${user.id}`)
       const data = await response.json()
       if (data.success) {
-        setRecurringExpenses(prev => prev.map(r => (r.id === editingRecurring.id ? data.recurringExpense : r)))
-        // Si había un gasto ya generado este mes, se actualizó con los nuevos datos (ej: precio)
-        if (data.syncedExpense) {
-          setExpenses(prev => prev.map(e => (e.id === data.syncedExpense.id ? data.syncedExpense : e)))
-        }
-        setEditingRecurring(null)
+        setHistoryDialog({ motivo: recurring.motivo, items: data.historial })
       } else {
         alert('Error: ' + data.error)
       }
     } catch {
       alert('Error de conexión')
-    } finally {
-      setIsSavingRecurring(false)
     }
   }
 
@@ -211,7 +192,7 @@ export default function ExpensesPage() {
       const data = await response.json()
       if (data.success) {
         setRecurringExpenses(prev => prev.filter(r => r.id !== id))
-        setEditingRecurring(prev => (prev?.id === id ? null : prev))
+        setRecurringTemplateToEdit(prev => (prev?.id === id ? null : prev))
       } else {
         alert('Error: ' + data.error)
       }
@@ -254,10 +235,15 @@ export default function ExpensesPage() {
       })
 
       const data = await response.json()
-      
+
       if (data.success) {
         // Recargar la lista de gastos
         loadUserExpenses(user.id)
+        // Si era un gasto recurrente (nuevo o edición), refrescar esa lista también
+        if (expenseData.esRecurrente || recurringTemplateToEdit) {
+          loadRecurringExpenses(user.id)
+        }
+        setRecurringTemplateToEdit(null)
       } else {
         console.error('Error creando gasto:', data.error)
         alert('Error al guardar el gasto: ' + data.error)
@@ -429,7 +415,14 @@ export default function ExpensesPage() {
 
           {/* Columna izquierda: formulario con scroll propio */}
           <div className="lg:h-full lg:overflow-y-auto lg:pr-1">
-            <ExpenseForm onSubmit={handleAddExpense} cards={cards} unidades={unidades} />
+            <ExpenseForm
+              key={recurringTemplateToEdit?.id || "new"}
+              onSubmit={handleAddExpense}
+              cards={cards}
+              unidades={unidades}
+              recurringTemplate={recurringTemplateToEdit || undefined}
+              onCancelRecurring={handleCancelRecurringEdit}
+            />
           </div>
 
           {/* Columna derecha: filtro + tabla con scroll propio */}
@@ -655,13 +648,7 @@ export default function ExpensesPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={showRecurringDialog}
-        onOpenChange={(open) => {
-          setShowRecurringDialog(open)
-          if (!open) setEditingRecurring(null)
-        }}
-      >
+      <Dialog open={showRecurringDialog} onOpenChange={setShowRecurringDialog}>
         <DialogContent
           className="sm:max-w-2xl max-h-[90vh] overflow-y-auto border shadow-lg"
           style={{ backgroundColor: '#ffffff', backdropFilter: 'none', opacity: 1 }}
@@ -671,14 +658,15 @@ export default function ExpensesPage() {
           </DialogHeader>
           <div className="space-y-6" style={{ backgroundColor: '#ffffff' }}>
             <p className="text-sm text-muted-foreground">
-              Los gastos recurrentes (suscripciones, cuotas fijas, etc.) se generan automáticamente
-              cada mes en el día que indiques, y el del período actual se carga de inmediato en tu
-              tabla de gastos. Si cambia el precio o algún dato, editalos acá con el lápiz.
+              Se crean tildando "¿Recurrente?" al registrar un gasto. Se generan solos cada mes,
+              y el del período actual se carga de inmediato en tu tabla. Para cambiar el precio o
+              subir un ticket nuevo, usá el lápiz: te precarga el gasto en "Registrar Gasto".
             </p>
 
             {recurringExpenses.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-2">
-                No tenés gastos recurrentes configurados todavía.
+                No tenés gastos recurrentes configurados todavía. Tildá "¿Recurrente?" al registrar
+                un gasto para crear el primero.
               </p>
             ) : (
               <div className="space-y-2">
@@ -700,8 +688,16 @@ export default function ExpensesPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        title="Editar"
-                        onClick={() => setEditingRecurring(r)}
+                        title="Ver historial de precios"
+                        onClick={() => handleViewRecurringHistory(r)}
+                      >
+                        <History className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Editar (registrar nuevo gasto con datos actualizados)"
+                        onClick={() => handleEditRecurring(r)}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -726,25 +722,40 @@ export default function ExpensesPage() {
                 ))}
               </div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
-            <div className="border-t pt-4">
-              <p className="text-sm font-medium mb-3">
-                {editingRecurring ? `Editando: ${editingRecurring.motivo}` : "Agregar gasto recurrente"}
+      <Dialog open={!!historyDialog} onOpenChange={() => setHistoryDialog(null)}>
+        <DialogContent
+          className="sm:max-w-lg max-h-[80vh] overflow-y-auto border shadow-lg"
+          style={{ backgroundColor: '#ffffff', backdropFilter: 'none', opacity: 1 }}
+        >
+          <DialogHeader style={{ backgroundColor: '#ffffff' }}>
+            <DialogTitle>Historial — {historyDialog?.motivo}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2" style={{ backgroundColor: '#ffffff' }}>
+            {historyDialog?.items.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Todavía no hay gastos registrados para este recurrente.
               </p>
-              {editingRecurring ? (
-                <RecurringExpenseForm
-                  key={editingRecurring.id}
-                  onSubmit={handleUpdateRecurring}
-                  cards={cards}
-                  submitting={isSavingRecurring}
-                  initialData={editingRecurring}
-                  isEditing
-                  onCancel={() => setEditingRecurring(null)}
-                />
-              ) : (
-                <RecurringExpenseForm onSubmit={handleAddRecurring} cards={cards} submitting={isSavingRecurring} />
-              )}
-            </div>
+            ) : (
+              historyDialog?.items.map((item) => (
+                <div key={item.id} className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {new Date(item.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC", year: "numeric", month: "long" })}
+                    </p>
+                    {item.documentoNombre && (
+                      <p className="text-xs text-muted-foreground">{item.documentoNombre}</p>
+                    )}
+                  </div>
+                  <p className="font-semibold">
+                    {item.moneda} {item.monto.toFixed(2)}
+                  </p>
+                </div>
+              ))
+            )}
           </div>
         </DialogContent>
       </Dialog>

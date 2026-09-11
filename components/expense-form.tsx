@@ -10,8 +10,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
-import { Upload, X } from "lucide-react"
-import { type Expense, type Tarjeta, type Unidad, MONEDAS } from "@/lib/types"
+import { Upload, X, Repeat } from "lucide-react"
+import { type Expense, type Tarjeta, type Unidad, type RecurringExpense, MONEDAS } from "@/lib/types"
 import { getCurrentUser } from "@/lib/auth"
 
 interface ExpenseFormProps {
@@ -20,25 +20,41 @@ interface ExpenseFormProps {
   isEditing?: boolean
   cards?: Tarjeta[]
   unidades?: Unidad[]
+  recurringTemplate?: RecurringExpense
+  onCancelRecurring?: () => void
 }
 
-export function ExpenseForm({ onSubmit, initialData, isEditing = false, cards = [], unidades = [] }: ExpenseFormProps) {
+export function ExpenseForm({
+  onSubmit,
+  initialData,
+  isEditing = false,
+  cards = [],
+  unidades = [],
+  recurringTemplate,
+  onCancelRecurring,
+}: ExpenseFormProps) {
+  // Al editar una plantilla recurrente (vía el lápiz en "Recurrentes"), se precarga
+  // acá para registrar un nuevo gasto con los datos (posiblemente actualizados).
+  const source = initialData || recurringTemplate
+
   const [formData, setFormData] = useState({
     fechaGasto: initialData?.fechaGasto
       ? new Date(initialData.fechaGasto).toISOString().split("T")[0]
       : new Date().toISOString().split("T")[0],
-    motivo: initialData?.motivo || "",
-    detalle: initialData?.detalle || "",
-    monto: initialData?.monto?.toString() || "",
-    moneda: initialData?.moneda || "ARS",
-    tipoCambio: initialData?.tipoCambio?.toString() || "",
-    canalPago: (initialData?.canalPago || "") as "" | "web" | "local" | "otro",
-    canalPagoDetalle: initialData?.canalPagoDetalle || "",
+    motivo: source?.motivo || "",
+    detalle: source?.detalle || "",
+    monto: source?.monto?.toString() || "",
+    moneda: source?.moneda || "ARS",
+    tipoCambio: source?.tipoCambio?.toString() || "",
+    canalPago: (source?.canalPago || "") as "" | "web" | "local" | "otro",
+    canalPagoDetalle: source?.canalPagoDetalle || "",
     tieneCuotas: initialData?.tieneCuotas || false,
     cantidadCuotas: initialData?.cantidadCuotas?.toString() || "",
-    tarjetaId: initialData?.tarjetaId || "",
+    tarjetaId: source?.tarjetaId || "",
     unidadDestinoId: initialData?.unidadDestinoId || "",
   })
+
+  const [esRecurrente, setEsRecurrente] = useState(!!recurringTemplate)
 
   const [documento, setDocumento] = useState<{
     file?: File
@@ -174,6 +190,8 @@ export function ExpenseForm({ onSubmit, initialData, isEditing = false, cards = 
         documento: documentoUrl,
         documentoNombre: documento?.nombre,
         documentoTipo: documento?.tipo,
+        esRecurrente: !isEditing ? esRecurrente : undefined,
+        recurringExpenseId: !isEditing ? recurringTemplate?.id : undefined,
       }
 
       onSubmit(expense)
@@ -184,22 +202,26 @@ export function ExpenseForm({ onSubmit, initialData, isEditing = false, cards = 
       setUploading(false)
     }
 
-    // Reset form
-    setFormData({
-      fechaGasto: new Date().toISOString().split("T")[0],
-      motivo: "",
-      detalle: "",
-      monto: "",
-      moneda: "ARS",
-      tipoCambio: "",
-      canalPago: "",
-      canalPagoDetalle: "",
-      tieneCuotas: false,
-      cantidadCuotas: "",
-      tarjetaId: "",
-      unidadDestinoId: "",
-    })
-    setDocumento(null)
+    // Reset form (no aplica si se estaba editando una plantilla recurrente:
+    // el padre desmonta/remonta este form al limpiar recurringTemplate)
+    if (!recurringTemplate) {
+      setFormData({
+        fechaGasto: new Date().toISOString().split("T")[0],
+        motivo: "",
+        detalle: "",
+        monto: "",
+        moneda: "ARS",
+        tipoCambio: "",
+        canalPago: "",
+        canalPagoDetalle: "",
+        tieneCuotas: false,
+        cantidadCuotas: "",
+        tarjetaId: "",
+        unidadDestinoId: "",
+      })
+      setEsRecurrente(false)
+      setDocumento(null)
+    }
   }
 
   const getCanalPagoDetalleConfig = () => {
@@ -222,6 +244,42 @@ export function ExpenseForm({ onSubmit, initialData, isEditing = false, cards = 
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {recurringTemplate && (
+            <div className="flex items-start justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+              <div className="flex items-start gap-2">
+                <Repeat className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <p className="text-sm">
+                  Editando gasto recurrente <strong>{recurringTemplate.motivo}</strong>. Se va a
+                  registrar un nuevo gasto con estos datos (actualizá el precio o subí el ticket
+                  nuevo si cambió algo).
+                </p>
+              </div>
+              {onCancelRecurring && (
+                <Button type="button" variant="ghost" size="sm" onClick={onCancelRecurring}>
+                  Cancelar
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!isEditing && (
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="esRecurrente">¿Recurrente?</Label>
+                <p className="text-sm text-muted-foreground">
+                  Se repite todos los meses (ej: suscripción). Se va a agregar a tu lista de
+                  recurrentes.
+                </p>
+              </div>
+              <Switch
+                id="esRecurrente"
+                checked={esRecurrente}
+                disabled={!!recurringTemplate}
+                onCheckedChange={setEsRecurrente}
+              />
+            </div>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="fechaGasto">Fecha del Gasto</Label>
@@ -368,19 +426,21 @@ export function ExpenseForm({ onSubmit, initialData, isEditing = false, cards = 
             </div>
           )}
 
-          <div className="flex items-center justify-between rounded-lg border p-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="tieneCuotas">¿Pago en cuotas?</Label>
-              <p className="text-sm text-muted-foreground">Especifica si el gasto se pagará en cuotas</p>
+          {!esRecurrente && (
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="tieneCuotas">¿Pago en cuotas?</Label>
+                <p className="text-sm text-muted-foreground">Especifica si el gasto se pagará en cuotas</p>
+              </div>
+              <Switch
+                id="tieneCuotas"
+                checked={formData.tieneCuotas}
+                onCheckedChange={(checked) => setFormData({ ...formData, tieneCuotas: checked })}
+              />
             </div>
-            <Switch
-              id="tieneCuotas"
-              checked={formData.tieneCuotas}
-              onCheckedChange={(checked) => setFormData({ ...formData, tieneCuotas: checked })}
-            />
-          </div>
+          )}
 
-          {formData.tieneCuotas && (
+          {!esRecurrente && formData.tieneCuotas && (
             <div className="space-y-2">
               <Label htmlFor="cantidadCuotas">Cantidad de Cuotas</Label>
               <Input
@@ -464,6 +524,10 @@ export function ExpenseForm({ onSubmit, initialData, isEditing = false, cards = 
               ? "Subiendo archivo..."
               : isEditing
               ? "Actualizar Gasto"
+              : recurringTemplate
+              ? "Guardar Cambios del Recurrente"
+              : esRecurrente
+              ? "Registrar Gasto Recurrente"
               : "Registrar Gasto"}
           </Button>
         </form>
