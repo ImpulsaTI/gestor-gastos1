@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { getCurrentUser, logout } from "@/lib/auth"
 import type { UserExpense, User, Tarjeta, Unidad, AdminTarjeta } from "@/lib/types"
-import { Receipt, LogOut, Eye, Printer, Filter, FileText, Download, Upload, CreditCard, Building2, Trash2, Plus } from "lucide-react"
+import { Receipt, LogOut, Eye, Printer, Filter, FileText, Download, Upload, CreditCard, Building2, Trash2, Plus, CalendarDays, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -19,6 +19,8 @@ export default function AdminPage() {
   const [selectedExpense, setSelectedExpense] = useState<UserExpense | null>(null)
   const [filterUser, setFilterUser] = useState<string>("all")
   const [filterUnidad, setFilterUnidad] = useState<string>("all")
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
   const [uniqueUsers, setUniqueUsers] = useState<{ id: string; name: string }[]>([])
 
   // Tarjetas y unidades
@@ -193,8 +195,16 @@ export default function AdminPage() {
         result = result.filter((e) => e.tarjeta?.unidad?.id === filterUnidad)
       }
     }
+    if (dateFrom || dateTo) {
+      result = result.filter((e) => {
+        const fecha = e.fechaGasto.split("T")[0]
+        if (dateFrom && fecha < dateFrom) return false
+        if (dateTo && fecha > dateTo) return false
+        return true
+      })
+    }
     setFilteredExpenses(result)
-  }, [filterUser, filterUnidad, allExpenses])
+  }, [filterUser, filterUnidad, dateFrom, dateTo, allExpenses])
 
   const handleLogout = () => {
     logout()
@@ -1152,7 +1162,7 @@ export default function AdminPage() {
               <Filter className="h-5 w-5 text-muted-foreground" />
             </div>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground">Usuario</Label>
               <Select value={filterUser} onValueChange={setFilterUser}>
@@ -1186,6 +1196,51 @@ export default function AdminPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="adminDateFrom" className="text-sm text-muted-foreground flex items-center gap-1">
+                <CalendarDays className="h-3.5 w-3.5" />
+                Desde
+              </Label>
+              <Input
+                id="adminDateFrom"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="adminDateTo" className="text-sm text-muted-foreground flex items-center gap-1">
+                <CalendarDays className="h-3.5 w-3.5" />
+                Hasta
+              </Label>
+              <Input
+                id="adminDateTo"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            {(filterUser !== "all" || filterUnidad !== "all" || dateFrom || dateTo) && (
+              <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Mostrando {filteredExpenses.length} de {allExpenses.length} tickets
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1 text-xs text-muted-foreground"
+                  onClick={() => {
+                    setFilterUser("all")
+                    setFilterUnidad("all")
+                    setDateFrom("")
+                    setDateTo("")
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                  Limpiar filtros
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
