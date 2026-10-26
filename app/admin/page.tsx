@@ -19,6 +19,7 @@ export default function AdminPage() {
   const [selectedExpense, setSelectedExpense] = useState<UserExpense | null>(null)
   const [filterUser, setFilterUser] = useState<string>("all")
   const [filterUnidad, setFilterUnidad] = useState<string>("all")
+  const [filterFacturadoA, setFilterFacturadoA] = useState<string>("all")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
   const [uniqueUsers, setUniqueUsers] = useState<{ id: string; name: string }[]>([])
@@ -195,6 +196,13 @@ export default function AdminPage() {
         result = result.filter((e) => e.tarjeta?.unidad?.id === filterUnidad)
       }
     }
+    if (filterFacturadoA !== "all") {
+      if (filterFacturadoA === "none") {
+        result = result.filter((e) => !e.unidadDestino)
+      } else {
+        result = result.filter((e) => e.unidadDestino?.id === filterFacturadoA)
+      }
+    }
     if (dateFrom || dateTo) {
       result = result.filter((e) => {
         const fecha = e.fechaGasto.split("T")[0]
@@ -204,7 +212,7 @@ export default function AdminPage() {
       })
     }
     setFilteredExpenses(result)
-  }, [filterUser, filterUnidad, dateFrom, dateTo, allExpenses])
+  }, [filterUser, filterUnidad, filterFacturadoA, dateFrom, dateTo, allExpenses])
 
   const handleLogout = () => {
     logout()
@@ -1162,7 +1170,7 @@ export default function AdminPage() {
               <Filter className="h-5 w-5 text-muted-foreground" />
             </div>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground">Usuario</Label>
               <Select value={filterUser} onValueChange={setFilterUser}>
@@ -1180,7 +1188,7 @@ export default function AdminPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label className="text-sm text-muted-foreground">Unidad</Label>
+              <Label className="text-sm text-muted-foreground">Unidad de la tarjeta</Label>
               <Select value={filterUnidad} onValueChange={setFilterUnidad}>
                 <SelectTrigger>
                   <SelectValue placeholder="Todas las unidades" />
@@ -1188,6 +1196,23 @@ export default function AdminPage() {
                 <SelectContent>
                   <SelectItem value="all">Todas las unidades</SelectItem>
                   <SelectItem value="none">Sin unidad asignada</SelectItem>
+                  {unidades.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">Facturado a</Label>
+              <Select value={filterFacturadoA} onValueChange={setFilterFacturadoA}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Cualquier razón social" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Cualquier razón social</SelectItem>
+                  <SelectItem value="none">Sin especificar</SelectItem>
                   {unidades.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.nombre}
@@ -1220,8 +1245,8 @@ export default function AdminPage() {
                 onChange={(e) => setDateTo(e.target.value)}
               />
             </div>
-            {(filterUser !== "all" || filterUnidad !== "all" || dateFrom || dateTo) && (
-              <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-between">
+            {(filterUser !== "all" || filterUnidad !== "all" || filterFacturadoA !== "all" || dateFrom || dateTo) && (
+              <div className="sm:col-span-2 lg:col-span-5 flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
                   Mostrando {filteredExpenses.length} de {allExpenses.length} tickets
                 </p>
@@ -1232,6 +1257,7 @@ export default function AdminPage() {
                   onClick={() => {
                     setFilterUser("all")
                     setFilterUnidad("all")
+                    setFilterFacturadoA("all")
                     setDateFrom("")
                     setDateTo("")
                   }}
