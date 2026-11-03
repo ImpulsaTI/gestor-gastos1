@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { FileText, Eye, Globe, Store, Info, Pencil, Repeat } from "lucide-react"
+import { usePdfPreviewUrl } from "@/hooks/use-pdf-preview-url"
 
 interface ExpenseTableProps {
   expenses: Expense[]
@@ -15,6 +16,13 @@ interface ExpenseTableProps {
 
 export function ExpenseTable({ expenses, onEdit }: ExpenseTableProps) {
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
+  // Blob URL del comprobante: más confiable que un data: URI crudo para
+  // abrir/descargar documentos grandes (algunos navegadores los truncan o bloquean).
+  const documentBlobUrl = usePdfPreviewUrl(
+    selectedExpense?.documentoTipo && !selectedExpense.documentoTipo.startsWith("image/")
+      ? selectedExpense.documento
+      : null
+  )
 
   const formatCurrency = (amount: number, currency: string) => {
     return new Intl.NumberFormat("es-AR", {
@@ -420,7 +428,7 @@ export function ExpenseTable({ expenses, onEdit }: ExpenseTableProps) {
                     ) : (
                       <div className="flex flex-col gap-2">
                         <a
-                          href={selectedExpense.documento}
+                          href={documentBlobUrl || selectedExpense.documento}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-sm text-primary hover:underline"
@@ -428,7 +436,7 @@ export function ExpenseTable({ expenses, onEdit }: ExpenseTableProps) {
                           Ver documento
                         </a>
                         <a
-                          href={selectedExpense.documento}
+                          href={documentBlobUrl || selectedExpense.documento}
                           download={selectedExpense.documentoNombre}
                           className="text-xs text-muted-foreground hover:underline"
                         >

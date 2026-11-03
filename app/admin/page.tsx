@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { usePdfPreviewUrl } from "@/hooks/use-pdf-preview-url"
 
 type CardSummary = {
   id: string
@@ -54,6 +55,14 @@ export default function AdminPage() {
   const [viewingUserSummaries, setViewingUserSummaries] = useState<{ id: string; name: string } | null>(null)
   const [userCardSummaries, setUserCardSummaries] = useState<CardSummary[]>([])
   const [selectedSummary, setSelectedSummary] = useState<CardSummary | null>(null)
+
+  // Blob URL para PDFs: los data: URI crudos fallan en varios navegadores dentro de un <iframe>.
+  const ticketPdfUrl = usePdfPreviewUrl(
+    selectedExpense?.documentoTipo === "application/pdf" ? selectedExpense.documento : null
+  )
+  const summaryPdfUrl = usePdfPreviewUrl(
+    selectedSummary?.archivoTipo === "application/pdf" ? selectedSummary.archivo : null
+  )
 
   const formatCurrency = (amount: number, currency: string) => {
     return new Intl.NumberFormat("es-AR", {
@@ -1607,18 +1616,22 @@ export default function AdminPage() {
                       <div className="mb-2 flex items-center justify-between bg-gray-50 p-2">
                         <p className="text-sm font-medium">PDF: {selectedExpense.documentoNombre}</p>
                         <a
-                          href={selectedExpense.documento}
+                          href={ticketPdfUrl || selectedExpense.documento}
                           download={selectedExpense.documentoNombre}
                           className="text-xs text-primary underline hover:text-primary/80"
                         >
                           Descargar
                         </a>
                       </div>
-                      <iframe
-                        src={selectedExpense.documento}
-                        className="h-96 w-full border-0"
-                        title="Vista previa del PDF"
-                      />
+                      {ticketPdfUrl ? (
+                        <iframe
+                          src={ticketPdfUrl}
+                          className="h-96 w-full border-0"
+                          title="Vista previa del PDF"
+                        />
+                      ) : (
+                        <p className="p-4 text-sm text-muted-foreground">Cargando vista previa...</p>
+                      )}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">Documento no disponible para vista previa</p>
@@ -1910,7 +1923,7 @@ export default function AdminPage() {
                   <p className="font-medium">{selectedSummary.archivoNombre}</p>
                 </div>
                 <a
-                  href={selectedSummary.archivo}
+                  href={(selectedSummary.archivoTipo === "application/pdf" ? summaryPdfUrl : null) || selectedSummary.archivo}
                   download={selectedSummary.archivoNombre}
                   className="inline-flex"
                 >
@@ -1931,11 +1944,15 @@ export default function AdminPage() {
                 </div>
               ) : selectedSummary.archivoTipo === "application/pdf" ? (
                 <div className="rounded-lg border overflow-hidden">
-                  <iframe
-                    src={selectedSummary.archivo}
-                    className="w-full h-[600px]"
-                    title="Vista previa del resumen"
-                  />
+                  {summaryPdfUrl ? (
+                    <iframe
+                      src={summaryPdfUrl}
+                      className="w-full h-[600px]"
+                      title="Vista previa del resumen"
+                    />
+                  ) : (
+                    <p className="p-4 text-sm text-muted-foreground">Cargando vista previa...</p>
+                  )}
                 </div>
               ) : (
                 <p className="text-center text-muted-foreground py-8">

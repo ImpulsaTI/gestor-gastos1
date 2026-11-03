@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { usePdfPreviewUrl } from "@/hooks/use-pdf-preview-url"
 
 type CardSummary = {
   id: string
@@ -40,6 +41,10 @@ export default function ExpensesPage() {
   const [showSummariesDialog, setShowSummariesDialog] = useState(false)
   const [cardSummaries, setCardSummaries] = useState<CardSummary[]>([])
   const [selectedSummary, setSelectedSummary] = useState<CardSummary | null>(null)
+  // Blob URL para PDFs: los data: URI crudos fallan en varios navegadores dentro de un <iframe>.
+  const summaryPdfUrl = usePdfPreviewUrl(
+    selectedSummary?.archivoTipo === "application/pdf" ? selectedSummary.archivo : null
+  )
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
 
   // Tarjetas
@@ -782,7 +787,7 @@ export default function ExpensesPage() {
                   <p className="font-medium">{selectedSummary.archivoNombre}</p>
                 </div>
                 <a
-                  href={selectedSummary.archivo}
+                  href={(selectedSummary.archivoTipo === "application/pdf" ? summaryPdfUrl : null) || selectedSummary.archivo}
                   download={selectedSummary.archivoNombre}
                   className="inline-flex"
                 >
@@ -803,11 +808,15 @@ export default function ExpensesPage() {
                 </div>
               ) : selectedSummary.archivoTipo === "application/pdf" ? (
                 <div className="rounded-lg border overflow-hidden">
-                  <iframe
-                    src={selectedSummary.archivo}
-                    className="w-full h-[600px]"
-                    title="Vista previa del resumen"
-                  />
+                  {summaryPdfUrl ? (
+                    <iframe
+                      src={summaryPdfUrl}
+                      className="w-full h-[600px]"
+                      title="Vista previa del resumen"
+                    />
+                  ) : (
+                    <p className="p-4 text-sm text-muted-foreground">Cargando vista previa...</p>
+                  )}
                 </div>
               ) : (
                 <p className="text-center text-muted-foreground py-8">
