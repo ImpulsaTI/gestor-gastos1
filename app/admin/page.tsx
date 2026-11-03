@@ -12,6 +12,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+type CardSummary = {
+  id: string
+  periodo: string
+  archivo: string
+  archivoNombre: string
+  archivoTipo: string
+  descripcion?: string
+  createdAt: string
+  tarjeta?: { id: string; ultimos4: string; descripcion?: string }
+}
+
 export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null)
   const [allExpenses, setAllExpenses] = useState<UserExpense[]>([])
@@ -39,6 +50,10 @@ export default function AdminPage() {
   const [isUploadingSummary, setIsUploadingSummary] = useState(false)
   const [summaryTarjetaId, setSummaryTarjetaId] = useState("")
   const [userCardsForSummary, setUserCardsForSummary] = useState<Tarjeta[]>([])
+  const [showViewSummariesDialog, setShowViewSummariesDialog] = useState(false)
+  const [viewingUserSummaries, setViewingUserSummaries] = useState<{ id: string; name: string } | null>(null)
+  const [userCardSummaries, setUserCardSummaries] = useState<CardSummary[]>([])
+  const [selectedSummary, setSelectedSummary] = useState<CardSummary | null>(null)
 
   const formatCurrency = (amount: number, currency: string) => {
     return new Intl.NumberFormat("es-AR", {
@@ -1055,6 +1070,53 @@ export default function AdminPage() {
     setShowUploadSummaryDialog(true)
   }
 
+  const formatPeriod = (periodo: string) => {
+    const [year, month] = periodo.split("-")
+    const monthNames = [
+      "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+      "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ]
+    return `${monthNames[parseInt(month) - 1]} ${year}`
+  }
+
+  const loadUserCardSummaries = async (userId: string) => {
+    try {
+      const response = await fetch(`/api/card-summaries?userId=${userId}`)
+      const data = await response.json()
+      if (data.success) {
+        setUserCardSummaries(data.cardSummaries)
+      } else {
+        console.error("Error cargando resúmenes:", data.error)
+      }
+    } catch (error) {
+      console.error("Error al cargar resúmenes:", error)
+    }
+  }
+
+  const handleOpenViewSummaries = async (selectedUser: { id: string; name: string }) => {
+    setViewingUserSummaries(selectedUser)
+    setShowViewSummariesDialog(true)
+    await loadUserCardSummaries(selectedUser.id)
+  }
+
+  const handleDeleteSummary = async (summaryId: string) => {
+    if (!user) return
+    if (!confirm("¿Eliminar este resumen de tarjeta?")) return
+    try {
+      const response = await fetch(`/api/card-summaries?summaryId=${summaryId}&adminUserId=${user.id}`, {
+        method: "DELETE",
+      })
+      const data = await response.json()
+      if (data.success) {
+        setUserCardSummaries(prev => prev.filter(s => s.id !== summaryId))
+      } else {
+        alert("Error: " + data.error)
+      }
+    } catch {
+      alert("Error de conexión")
+    }
+  }
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -1099,6 +1161,9 @@ export default function AdminPage() {
           setShowUploadSummaryDialog(false)
           setSummaryFile(null)
           setSummaryDescription("")
+          if (viewingUserSummaries?.id === selectedUserForSummary.id) {
+            loadUserCardSummaries(selectedUserForSummary.id)
+          }
         } else {
           alert("Error al subir el resumen: " + data.error)
         }
@@ -1292,21 +1357,31 @@ export default function AdminPage() {
               <CardTitle>Resúmenes de Tarjeta</CardTitle>
               <CreditCard className="h-5 w-5 text-muted-foreground" />
             </div>
-            <CardDescription>Subir resúmenes mensuales de tarjeta para cada usuario</CardDescription>
+            <CardDescription>Subir y consultar resúmenes mensuales de tarjeta de cada usuario</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {uniqueUsers.map((u) => (
                 <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border">
                   <span className="font-medium">{u.name}</span>
-                  <Button
-                    className="button-elegant"
-                    size="sm"
-                    onClick={() => handleOpenUploadSummary(u)}
-                  >
-                    <Upload className="mr-2 h-4 w-4" />
-                    Subir Resumen
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenViewSummaries(u)}
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      Ver Resúmenes
+                    </Button>
+                    <Button
+                      className="button-elegant"
+                      size="sm"
+                      onClick={() => handleOpenUploadSummary(u)}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Subir Resumen
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1745,6 +1820,130 @@ export default function AdminPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showViewSummariesDialog} onOpenChange={setShowViewSummariesDialog}>
+        <DialogContent
+          className="sm:max-w-2xl max-h-[80vh] overflow-y-auto border shadow-lg"
+          style={{ backgroundColor: '#ffffff', backdropFilter: 'none', opacity: 1 }}
+        >
+          <DialogHeader style={{ backgroundColor: '#ffffff' }}>
+            <DialogTitle>Resúmenes de {viewingUserSummaries?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" style={{ backgroundColor: '#ffffff' }}>
+            {userCardSummaries.length === 0 ? (
+              <div className="text-center py-8">
+                <CreditCard className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">
+                  No hay resúmenes de tarjeta cargados todavía para este usuario
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {userCardSummaries.map((summary) => (
+                  <Card key={summary.id}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <CardTitle className="text-lg">
+                            {formatPeriod(summary.periodo)}
+                            {summary.tarjeta && (
+                              <span className="ml-2 text-sm font-mono font-normal text-muted-foreground">
+                                **** {summary.tarjeta.ultimos4}
+                              </span>
+                            )}
+                          </CardTitle>
+                          {summary.descripcion && (
+                            <CardDescription className="mt-1">
+                              {summary.descripcion}
+                            </CardDescription>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => setSelectedSummary(summary)}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            Ver
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteSummary(summary.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <span>{summary.archivoNombre}</span>
+                        <span>
+                          Subido: {new Date(summary.createdAt).toLocaleDateString("es-AR")}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!selectedSummary} onOpenChange={() => setSelectedSummary(null)}>
+        <DialogContent
+          className="sm:max-w-4xl max-h-[90vh] overflow-y-auto border shadow-lg"
+          style={{ backgroundColor: '#ffffff', backdropFilter: 'none', opacity: 1 }}
+        >
+          <DialogHeader style={{ backgroundColor: '#ffffff' }}>
+            <DialogTitle>
+              Resumen - {selectedSummary && formatPeriod(selectedSummary.periodo)}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedSummary && (
+            <div className="space-y-4" style={{ backgroundColor: '#ffffff' }}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm text-muted-foreground">Archivo</p>
+                  <p className="font-medium">{selectedSummary.archivoNombre}</p>
+                </div>
+                <a
+                  href={selectedSummary.archivo}
+                  download={selectedSummary.archivoNombre}
+                  className="inline-flex"
+                >
+                  <Button variant="outline" size="sm">
+                    <Download className="mr-2 h-4 w-4" />
+                    Descargar
+                  </Button>
+                </a>
+              </div>
+
+              {selectedSummary.archivoTipo?.startsWith("image/") ? (
+                <div className="rounded-lg border overflow-hidden">
+                  <img
+                    src={selectedSummary.archivo}
+                    alt="Resumen de tarjeta"
+                    className="w-full h-auto"
+                  />
+                </div>
+              ) : selectedSummary.archivoTipo === "application/pdf" ? (
+                <div className="rounded-lg border overflow-hidden">
+                  <iframe
+                    src={selectedSummary.archivo}
+                    className="w-full h-[600px]"
+                    title="Vista previa del resumen"
+                  />
+                </div>
+              ) : (
+                <p className="text-center text-muted-foreground py-8">
+                  No se puede previsualizar este archivo. Descárgalo para verlo.
+                </p>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
