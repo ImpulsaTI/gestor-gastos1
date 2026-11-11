@@ -312,6 +312,7 @@ export async function PUT(request: NextRequest) {
         documento = ${documento},
         "documentoNombre" = ${documentoNombre},
         "documentoTipo" = ${documentoTipo},
+        "pendienteRevision" = false,
         "updatedAt" = ${new Date()}
       WHERE id = ${expenseId}
       RETURNING *;
@@ -324,6 +325,54 @@ export async function PUT(request: NextRequest) {
 
   } catch (error) {
     console.error('Error al actualizar gasto:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Error interno del servidor',
+        details: error instanceof Error ? error.message : String(error)
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const expenseId = searchParams.get('expenseId');
+    const userId = searchParams.get('userId');
+
+    if (!expenseId || !userId) {
+      return NextResponse.json(
+        { success: false, error: 'expenseId y userId son requeridos' },
+        { status: 400 }
+      );
+    }
+
+    const existingExpense = await prisma.expense.findUnique({ where: { id: expenseId } });
+
+    if (!existingExpense || existingExpense.userId !== userId) {
+      return NextResponse.json(
+        { success: false, error: 'Gasto no encontrado' },
+        { status: 404 }
+      );
+    }
+
+    // Por ahora el borrado directo solo está habilitado para descartar gastos
+    // pendientes de revisión (cargados por el conector MCP); un gasto ya
+    // confirmado no se puede eliminar desde acá.
+    if (!existingExpense.pendienteRevision) {
+      return NextResponse.json(
+        { success: false, error: 'Solo se pueden descartar gastos pendientes de revisión' },
+        { status: 403 }
+      );
+    }
+
+    await prisma.expense.delete({ where: { id: expenseId } });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error al eliminar gasto:', error);
     return NextResponse.json(
       {
         success: false,

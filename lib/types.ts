@@ -45,6 +45,7 @@ export interface Expense {
   unidadDestinoId?: string
   unidadDestino?: { id: string; nombre: string } | null
   esRecurrente?: boolean
+  pendienteRevision?: boolean
 }
 
 export interface RecurringExpense {

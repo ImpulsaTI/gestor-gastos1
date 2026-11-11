@@ -25,8 +25,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Obtener todos los gastos con información del usuario
+    // Obtener todos los gastos con información del usuario (sin incluir los
+    // que todavía están pendientes de revisión por su dueño, ej. los que
+    // cargó el conector MCP leyendo una factura)
     const expenses = await prisma.expense.findMany({
+      where: { pendienteRevision: false },
       include: {
         user: {
           select: {

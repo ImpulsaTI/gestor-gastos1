@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { ExpenseForm } from "@/components/expense-form"
 import { ExpenseTable } from "@/components/expense-table"
 import type { Expense, Tarjeta, RecurringExpense, Unidad } from "@/lib/types"
-import { Receipt, LogOut, CreditCard, Eye, Download, Plus, Trash2, CalendarDays, X, Repeat, Power, Pencil, History } from "lucide-react"
+import { Receipt, LogOut, CreditCard, Eye, Download, Plus, Trash2, CalendarDays, X, Repeat, Power, Pencil, History, Inbox } from "lucide-react"
 import { getCurrentUser, logout } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -66,6 +66,9 @@ export default function ExpensesPage() {
   const [showRecurringDialog, setShowRecurringDialog] = useState(false)
   const [recurringTemplateToEdit, setRecurringTemplateToEdit] = useState<RecurringExpense | null>(null)
   const [historyDialog, setHistoryDialog] = useState<{ motivo: string; items: HistorialItem[] } | null>(null)
+
+  // Gastos pendientes de revisión (cargados por el conector MCP a partir de una factura)
+  const [showPendingDialog, setShowPendingDialog] = useState(false)
 
   const loadUserExpenses = async (userId: string) => {
     try {
@@ -224,6 +227,24 @@ export default function ExpensesPage() {
     }
   }
 
+  const handleDiscardPending = async (expenseId: string) => {
+    if (!user) return
+    if (!confirm("¿Descartar este gasto pendiente? No se va a cargar.")) return
+    try {
+      const response = await fetch(`/api/expenses?expenseId=${expenseId}&userId=${user.id}`, {
+        method: 'DELETE',
+      })
+      const data = await response.json()
+      if (data.success) {
+        setExpenses(prev => prev.filter(e => e.id !== expenseId))
+      } else {
+        alert('Error: ' + data.error)
+      }
+    } catch {
+      alert('Error de conexión')
+    }
+  }
+
   const createExpense = async (expenseData: Expense) => {
     if (!user) return
 
@@ -349,7 +370,10 @@ export default function ExpensesPage() {
     return null
   }
 
-  const filteredExpenses = expenses.filter((e) => {
+  const pendingExpenses = expenses.filter((e) => e.pendienteRevision)
+  const confirmedExpenses = expenses.filter((e) => !e.pendienteRevision)
+
+  const filteredExpenses = confirmedExpenses.filter((e) => {
     const fecha = e.fechaGasto.split("T")[0]
     if (dateFrom && fecha < dateFrom) return false
     if (dateTo && fecha > dateTo) return false
@@ -395,6 +419,18 @@ export default function ExpensesPage() {
                 Recurrentes
                 {recurringExpenses.length > 0 && (
                   <span className="ml-1 rounded-full bg-white/20 px-1.5 text-xs">{recurringExpenses.length}</span>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowPendingDialog(true)}
+                className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+              >
+                <Inbox className="mr-2 h-4 w-4" />
+                Pendientes de revisar
+                {pendingExpenses.length > 0 && (
+                  <span className="ml-1 rounded-full bg-white/20 px-1.5 text-xs">{pendingExpenses.length}</span>
                 )}
               </Button>
               <Button
@@ -475,7 +511,7 @@ export default function ExpensesPage() {
               </div>
               {hasFilter && (
                 <p className="w-full text-xs text-muted-foreground">
-                  Mostrando {filteredExpenses.length} de {expenses.length} gastos
+                  Mostrando {filteredExpenses.length} de {confirmedExpenses.length} gastos
                 </p>
               )}
             </div>
@@ -649,6 +685,63 @@ export default function ExpensesPage() {
                 {isAddingCard ? "Agregando..." : "Agregar tarjeta"}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPendingDialog} onOpenChange={setShowPendingDialog}>
+        <DialogContent
+          className="sm:max-w-2xl max-h-[90vh] overflow-y-auto border shadow-lg"
+          style={{ backgroundColor: '#ffffff', backdropFilter: 'none', opacity: 1 }}
+        >
+          <DialogHeader style={{ backgroundColor: '#ffffff' }}>
+            <DialogTitle>Pendientes de revisar</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" style={{ backgroundColor: '#ffffff' }}>
+            <p className="text-sm text-muted-foreground">
+              Gastos cargados por el asistente de IA a partir de una factura. Revisalos, corregí lo
+              que haga falta (tarjeta, unidad, etc.) y guardá para confirmarlos — hasta entonces no
+              cuentan como gastos reales ni aparecen en la tabla general.
+            </p>
+
+            {pendingExpenses.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No tenés gastos pendientes de revisar.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {pendingExpenses.map((e) => (
+                  <div key={e.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{e.motivo}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {e.moneda} {e.monto.toFixed(2)} · {new Date(e.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC" })}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setShowPendingDialog(false)
+                          setEditingExpense(e)
+                        }}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Revisar
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDiscardPending(e.id)}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
