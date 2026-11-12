@@ -793,7 +793,7 @@ export default function ExpensesPage() {
 
             <ol className="list-decimal space-y-2 pl-5 text-sm">
               <li>
-                En <a href="https://claude.ai/settings/connectors" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://claude.ai/new?modal=add-custom-connector#customize/connectors</a>,
+                En <a href="https://claude.ai/new?modal=add-custom-connector#customize/connectors" target="_blank" rel="noopener noreferrer" className="text-primary underline">Claude Conectores</a>,
                 tocá <strong>Add custom connector</strong>.
               </li>
               <li>Pegá el link de arriba y confirmá.</li>
