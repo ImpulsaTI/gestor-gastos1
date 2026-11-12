@@ -5,6 +5,34 @@ import { getBaseUrl } from '@/lib/oauth'
 const SERVER_NAME = 'gestorgastos-mcp'
 const SERVER_VERSION = '1.0.0'
 
+function normalizeNombre(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim()
+}
+
+// Intenta matchear la razón social leída de una factura contra las unidades
+// de negocio ya cargadas en GestorGastos. Solo asigna si hay una coincidencia
+// clara; si no, no inventa nada (queda para que lo elija un humano).
+async function matchUnidadPorRazonSocial(razonSocial: string): Promise<{ id: string; nombre: string } | null> {
+  const norm = normalizeNombre(razonSocial)
+  if (!norm) return null
+
+  const unidades = await prisma.unidad.findMany({ select: { id: true, nombre: true } })
+
+  const exacta = unidades.find((u) => normalizeNombre(u.nombre) === norm)
+  if (exacta) return exacta
+
+  const parciales = unidades.filter((u) => {
+    const un = normalizeNombre(u.nombre)
+    return un.length > 2 && (norm.includes(un) || un.includes(norm))
+  })
+  return parciales.length === 1 ? parciales[0] : null
+}
+
 const REGISTRAR_GASTO_TOOL = {
   name: 'registrar_gasto',
   description:
@@ -13,7 +41,10 @@ const REGISTRAR_GASTO_TOOL = {
     'unidad de negocio, etc.) antes de que cuente como un gasto real. Completá los campos que ' +
     'puedas leer de la factura; lo que no sepas, dejalo sin completar. ' +
     'Si venís de procesar un comprobante ya subido (via listar_comprobantes_sin_procesar / ' +
-    'obtener_comprobante), pasá su expenseId acá para completarlo en vez de crear uno nuevo.',
+    'obtener_comprobante), pasá su expenseId acá para completarlo en vez de crear uno nuevo. ' +
+    'Fijate también si la factura tiene un campo "Razón Social" del COMPRADOR (no del vendedor que ' +
+    'está arriba de todo) y pasalo en razonSocialComprador: el sistema intenta asignar automáticamente ' +
+    'la unidad de negocio correspondiente.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -67,6 +98,13 @@ const REGISTRAR_GASTO_TOOL = {
       documentoTipo: {
         type: 'string',
         description: 'Tipo MIME del comprobante, ej. image/jpeg o application/pdf',
+      },
+      razonSocialComprador: {
+        type: 'string',
+        description:
+          'Razón social del COMPRADOR tal como figura en la factura (ej: "Razón Social: ABELAR ' +
+          'SERVICIOS S.R.L"), NO la del vendedor/emisor que suele estar arriba de todo. Si la factura ' +
+          'no distingue comprador, dejalo vacío.',
       },
     },
     required: ['motivo', 'monto'],
@@ -205,6 +243,21 @@ async function handleRegistrarGasto(userId: string, args: Record<string, unknown
 
   const expenseId = typeof args.expenseId === 'string' && args.expenseId ? args.expenseId : null
 
+  const razonSocialComprador =
+    typeof args.razonSocialComprador === 'string' ? args.razonSocialComprador.trim() : ''
+  let unidadDestinoId: string | null = null
+  let razonSocialDetectada: string | null = null
+  let unidadDetectadaNombre: string | null = null
+  if (razonSocialComprador) {
+    const match = await matchUnidadPorRazonSocial(razonSocialComprador)
+    if (match) {
+      unidadDestinoId = match.id
+      unidadDetectadaNombre = match.nombre
+    } else {
+      razonSocialDetectada = razonSocialComprador
+    }
+  }
+
   // Completa un comprobante ya subido en lote (conserva el archivo, llena los datos)
   if (expenseId) {
     const existing = await prisma.expense.findUnique({ where: { id: expenseId } })
@@ -225,16 +278,24 @@ async function handleRegistrarGasto(userId: string, args: Record<string, unknown
         tipoCambio: tipoCambio ?? null,
         canalPago,
         canalPagoDetalle,
+        unidadDestinoId,
+        razonSocialDetectada,
         pendienteProcesamientoIA: false,
       },
     })
+
+    const unidadMsg = unidadDetectadaNombre
+      ? ` Unidad asignada automáticamente: ${unidadDetectadaNombre}.`
+      : razonSocialDetectada
+        ? ` Detecté la razón social "${razonSocialDetectada}" pero no coincide con ninguna unidad existente; quedó para elegirla a mano.`
+        : ''
 
     return {
       content: [
         {
           type: 'text',
           text:
-            `Comprobante completado: "${expense.motivo}" por ${expense.moneda} ${expense.monto}. ` +
+            `Comprobante completado: "${expense.motivo}" por ${expense.moneda} ${expense.monto}.${unidadMsg} ` +
             `Sigue pendiente de revisión en la app hasta que lo confirmes.`,
         },
       ],
@@ -263,9 +324,17 @@ async function handleRegistrarGasto(userId: string, args: Record<string, unknown
       documento,
       documentoNombre: typeof args.documentoNombre === 'string' ? args.documentoNombre : null,
       documentoTipo: documentoBase64 ? documentoTipo : null,
+      unidadDestinoId,
+      razonSocialDetectada,
       pendienteRevision: true,
     },
   })
+
+  const unidadMsg = unidadDetectadaNombre
+    ? ` Unidad asignada automáticamente: ${unidadDetectadaNombre}.`
+    : razonSocialDetectada
+      ? ` Detecté la razón social "${razonSocialDetectada}" pero no coincide con ninguna unidad existente; quedó para elegirla a mano.`
+      : ''
 
   return {
     content: [
@@ -273,8 +342,8 @@ async function handleRegistrarGasto(userId: string, args: Record<string, unknown
         type: 'text',
         text:
           `Gasto cargado como pendiente de revisión en GestorGastos: "${expense.motivo}" por ` +
-          `${expense.moneda} ${expense.monto}. Entrá a la app, sección "Pendientes de revisar", para ` +
-          `confirmarlo o corregirlo antes de que cuente como gasto real.`,
+          `${expense.moneda} ${expense.monto}.${unidadMsg} Entrá a la app, sección "Pendientes de revisar", ` +
+          `para confirmarlo o corregirlo antes de que cuente como gasto real.`,
       },
     ],
   }

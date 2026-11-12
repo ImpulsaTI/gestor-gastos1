@@ -480,6 +480,12 @@ export function ExpenseForm({
           {unidades.length > 0 && (
             <div className="space-y-2">
               <Label htmlFor="unidadDestinoId">Unidad a la que se destina el gasto</Label>
+              {!formData.unidadDestinoId && initialData?.razonSocialDetectada && (
+                <p className="text-xs text-amber-700">
+                  La IA detectó la razón social "{initialData.razonSocialDetectada}" en el comprobante,
+                  pero no coincide con ninguna unidad. Elegí la correcta (o creá la unidad si falta).
+                </p>
+              )}
               <Select
                 value={formData.unidadDestinoId}
                 onValueChange={(value) => setFormData({ ...formData, unidadDestinoId: value })}

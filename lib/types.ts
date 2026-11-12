@@ -47,6 +47,7 @@ export interface Expense {
   esRecurrente?: boolean
   pendienteRevision?: boolean
   pendienteProcesamientoIA?: boolean
+  razonSocialDetectada?: string | null
 }
 
 export interface RecurringExpense {

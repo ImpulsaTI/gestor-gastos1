@@ -70,6 +70,11 @@ model Expense {
   unidadDestinoId    String?
   unidadDestino      Unidad?   @relation(fields: [unidadDestinoId], references: [id], onDelete: SetNull)
 
+  // Razón social leída de la factura por el conector MCP cuando no coincidió con
+  // ninguna unidad existente (unidadDestinoId queda null). Solo informativo, para
+  // que el humano sepa qué unidad elegir/crear al revisar.
+  razonSocialDetectada String?
+
   // true cuando lo cargó el conector MCP (ej: Claude leyendo una factura) y
   // todavía no lo confirmó/editó un humano. No aparece en las tablas normales.
   pendienteRevision  Boolean   @default(false)

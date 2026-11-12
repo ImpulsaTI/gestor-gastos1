@@ -313,6 +313,7 @@ export async function PUT(request: NextRequest) {
         "documentoNombre" = ${documentoNombre},
         "documentoTipo" = ${documentoTipo},
         "pendienteRevision" = false,
+        "razonSocialDetectada" = null,
         "updatedAt" = ${new Date()}
       WHERE id = ${expenseId}
       RETURNING *;

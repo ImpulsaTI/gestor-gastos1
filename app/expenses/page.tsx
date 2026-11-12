@@ -902,6 +902,15 @@ export default function ExpensesPage() {
                       <p className="text-xs text-muted-foreground">
                         {e.moneda} {e.monto.toFixed(2)} · {new Date(e.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC" })}
                       </p>
+                      {e.unidadDestino ? (
+                        <p className="text-xs text-emerald-700 truncate">
+                          Unidad detectada: {e.unidadDestino.nombre}
+                        </p>
+                      ) : e.razonSocialDetectada ? (
+                        <p className="text-xs text-amber-700 truncate">
+                          Razón social detectada: "{e.razonSocialDetectada}" — no coincide con ninguna unidad, elegila a mano
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <Button
