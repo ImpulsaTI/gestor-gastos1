@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import bcrypt from 'bcryptjs'
-import { generateToken, AUTH_CODE_TTL_SECONDS } from '@/lib/oauth'
+import { issueAuthorizationCode } from '@/lib/oauth'
 
 // Verifica las credenciales del usuario (mismo login que la app) y, si son
 // válidas, emite un authorization code para que el cliente MCP (claude.ai)
@@ -53,25 +53,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const code = generateToken(32)
-    await prisma.oAuthAuthorizationCode.create({
-      data: {
-        code,
-        clientId: client.clientId,
-        userId: user.id,
-        redirectUri: redirect_uri,
-        codeChallenge: code_challenge,
-        codeChallengeMethod: code_challenge_method || 'S256',
-        scope: scope || null,
-        expiresAt: new Date(Date.now() + AUTH_CODE_TTL_SECONDS * 1000),
-      },
+    const redirectTo = await issueAuthorizationCode({
+      userId: user.id,
+      clientId: client.clientId,
+      redirectUri: redirect_uri,
+      codeChallenge: code_challenge,
+      codeChallengeMethod: code_challenge_method,
+      scope,
+      state,
     })
 
-    const redirectUrl = new URL(redirect_uri)
-    redirectUrl.searchParams.set('code', code)
-    if (state) redirectUrl.searchParams.set('state', state)
-
-    return NextResponse.json({ success: true, redirectTo: redirectUrl.toString() })
+    return NextResponse.json({ success: true, redirectTo })
   } catch (error) {
     console.error('Error en authorize:', error)
     return NextResponse.json({ error: 'server_error' }, { status: 500 })

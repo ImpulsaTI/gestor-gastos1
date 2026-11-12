@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { signIn } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -23,6 +24,11 @@ function AuthorizeForm() {
   const scope = searchParams.get("scope")
 
   const missingParams = !clientId || !redirectUri || !codeChallenge
+
+  const handleMicrosoftLogin = () => {
+    const callbackUrl = `/oauth/authorize/microsoft-callback?${searchParams.toString()}`
+    signIn("azure-ad", { callbackUrl })
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -87,7 +93,33 @@ function AuthorizeForm() {
           </span>
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full flex items-center gap-3 h-11 text-base font-medium border-2 hover:bg-accent"
+          disabled={loading}
+          onClick={handleMicrosoftLogin}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" className="h-5 w-5 shrink-0">
+            <path fill="#f3f3f3" d="M0 0h23v23H0z" />
+            <path fill="#f35325" d="M1 1h10v10H1z" />
+            <path fill="#81bc06" d="M12 1h10v10H12z" />
+            <path fill="#05a6f0" d="M1 12h10v10H1z" />
+            <path fill="#ffba08" d="M12 12h10v10H12z" />
+          </svg>
+          Autorizar con Microsoft
+        </Button>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">o con contraseña</span>
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
