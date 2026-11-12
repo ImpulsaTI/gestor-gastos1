@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { ExpenseForm } from "@/components/expense-form"
 import { ExpenseTable } from "@/components/expense-table"
 import type { Expense, Tarjeta, RecurringExpense, Unidad } from "@/lib/types"
-import { Receipt, LogOut, CreditCard, Eye, Download, Plus, Trash2, CalendarDays, X, Repeat, Power, Pencil, History, Inbox, Upload, Sparkles } from "lucide-react"
+import { Receipt, LogOut, CreditCard, Eye, Download, Plus, Trash2, CalendarDays, X, Repeat, Power, Pencil, History, Inbox, Upload, Sparkles, Bot, Copy, Check } from "lucide-react"
 import { getCurrentUser, logout } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -74,6 +74,21 @@ export default function ExpensesPage() {
   const [showBulkUploadDialog, setShowBulkUploadDialog] = useState(false)
   const [bulkFiles, setBulkFiles] = useState<File[]>([])
   const [isBulkUploading, setIsBulkUploading] = useState(false)
+
+  // Instrucciones para conectar el asistente de IA (MCP) desde claude.ai/ChatGPT
+  const [showMcpSetupDialog, setShowMcpSetupDialog] = useState(false)
+  const [mcpUrlCopied, setMcpUrlCopied] = useState(false)
+  const mcpUrl = typeof window !== "undefined" ? `${window.location.origin}/api/mcp` : ""
+
+  const handleCopyMcpUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpUrl)
+      setMcpUrlCopied(true)
+      setTimeout(() => setMcpUrlCopied(false), 2000)
+    } catch {
+      // Si el navegador bloquea el clipboard, el usuario puede copiar el texto a mano
+    }
+  }
 
   const loadUserExpenses = async (userId: string) => {
     try {
@@ -469,6 +484,15 @@ export default function ExpensesPage() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setShowMcpSetupDialog(true)}
+                className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+              >
+                <Bot className="mr-2 h-4 w-4" />
+                Conectar IA
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setShowBulkUploadDialog(true)}
                 className="bg-white/10 border-white/30 text-white hover:bg-white/20"
               >
@@ -739,6 +763,51 @@ export default function ExpensesPage() {
                 {isAddingCard ? "Agregando..." : "Agregar tarjeta"}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMcpSetupDialog} onOpenChange={setShowMcpSetupDialog}>
+        <DialogContent
+          className="sm:max-w-lg border shadow-lg"
+          style={{ backgroundColor: '#ffffff', backdropFilter: 'none', opacity: 1 }}
+        >
+          <DialogHeader style={{ backgroundColor: '#ffffff' }}>
+            <DialogTitle>Conectar un asistente de IA</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" style={{ backgroundColor: '#ffffff' }}>
+            <p className="text-sm text-muted-foreground">
+              Conectá Claude (con cuenta Pro) a GestorGastos para pasarle fotos de facturas por chat
+              y que cargue los gastos solo. No necesitás token ni API paga, usa tu plan normal.
+            </p>
+
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">1. Pegá este link en claude.ai</Label>
+              <div className="flex gap-2">
+                <Input value={mcpUrl} readOnly className="font-mono text-xs" />
+                <Button type="button" variant="outline" size="icon" onClick={handleCopyMcpUrl} title="Copiar">
+                  {mcpUrlCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <ol className="list-decimal space-y-2 pl-5 text-sm">
+              <li>
+                En <a href="https://claude.ai/settings/connectors" target="_blank" rel="noopener noreferrer" className="text-primary underline">claude.ai/settings/connectors</a>,
+                tocá <strong>Add custom connector</strong>.
+              </li>
+              <li>Pegá el link de arriba y confirmá.</li>
+              <li>Te va a pedir iniciar sesión: usá tu mismo email y contraseña de GestorGastos.</li>
+              <li>
+                Listo. En cualquier chat nuevo, subí la foto de una factura y pedile "cargá este
+                gasto en GestorGastos", o "subí comprobantes" en la app y después "procesá mis
+                comprobantes pendientes" si son varios.
+              </li>
+              <li>
+                Los gastos que carga quedan en <strong>"Pendientes de revisar"</strong> hasta que
+                vos los confirmes o corrijas.
+              </li>
+            </ol>
           </div>
         </DialogContent>
       </Dialog>
