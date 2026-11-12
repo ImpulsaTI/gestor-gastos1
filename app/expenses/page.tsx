@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { ExpenseForm } from "@/components/expense-form"
 import { ExpenseTable } from "@/components/expense-table"
 import type { Expense, Tarjeta, RecurringExpense, Unidad } from "@/lib/types"
-import { Receipt, LogOut, CreditCard, Eye, Download, Plus, Trash2, CalendarDays, X, Repeat, Power, Pencil, History, Inbox } from "lucide-react"
+import { Receipt, LogOut, CreditCard, Eye, Download, Plus, Trash2, CalendarDays, X, Repeat, Power, Pencil, History, Inbox, Upload, Sparkles } from "lucide-react"
 import { getCurrentUser, logout } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -69,6 +69,11 @@ export default function ExpensesPage() {
 
   // Gastos pendientes de revisión (cargados por el conector MCP a partir de una factura)
   const [showPendingDialog, setShowPendingDialog] = useState(false)
+
+  // Carga masiva de comprobantes para que la IA los procese después, por chat
+  const [showBulkUploadDialog, setShowBulkUploadDialog] = useState(false)
+  const [bulkFiles, setBulkFiles] = useState<File[]>([])
+  const [isBulkUploading, setIsBulkUploading] = useState(false)
 
   const loadUserExpenses = async (userId: string) => {
     try {
@@ -242,6 +247,46 @@ export default function ExpensesPage() {
       }
     } catch {
       alert('Error de conexión')
+    }
+  }
+
+  const handleBulkUpload = async () => {
+    if (!user || bulkFiles.length === 0) return
+    setIsBulkUploading(true)
+    try {
+      const comprobantes = await Promise.all(
+        bulkFiles.map(
+          (file) =>
+            new Promise<{ nombre: string; tipo: string; base64: string }>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onloadend = () => resolve({ nombre: file.name, tipo: file.type, base64: reader.result as string })
+              reader.onerror = reject
+              reader.readAsDataURL(file)
+            })
+        )
+      )
+
+      const response = await fetch('/api/expenses/bulk-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, comprobantes }),
+      })
+      const data = await response.json()
+
+      if (data.success) {
+        loadUserExpenses(user.id)
+        setBulkFiles([])
+        setShowBulkUploadDialog(false)
+        alert(
+          `Se subieron ${data.expenses.length} comprobante(s). Ahora pedile a Claude (o al asistente que tengas conectado) que procese tus comprobantes pendientes.`
+        )
+      } else {
+        alert('Error: ' + data.error)
+      }
+    } catch {
+      alert('Error al subir los comprobantes')
+    } finally {
+      setIsBulkUploading(false)
     }
   }
 
@@ -420,6 +465,15 @@ export default function ExpensesPage() {
                 {recurringExpenses.length > 0 && (
                   <span className="ml-1 rounded-full bg-white/20 px-1.5 text-xs">{recurringExpenses.length}</span>
                 )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBulkUploadDialog(true)}
+                className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Subir comprobantes
               </Button>
               <Button
                 variant="outline"
@@ -689,6 +743,61 @@ export default function ExpensesPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={showBulkUploadDialog}
+        onOpenChange={(open) => {
+          setShowBulkUploadDialog(open)
+          if (!open) setBulkFiles([])
+        }}
+      >
+        <DialogContent
+          className="sm:max-w-lg border shadow-lg"
+          style={{ backgroundColor: '#ffffff', backdropFilter: 'none', opacity: 1 }}
+        >
+          <DialogHeader style={{ backgroundColor: '#ffffff' }}>
+            <DialogTitle>Subir comprobantes</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" style={{ backgroundColor: '#ffffff' }}>
+            <p className="text-sm text-muted-foreground">
+              Subí de una todas las fotos de facturas que tengas (hasta 30). Después, en el chat con
+              tu asistente de IA conectado (ej. Claude), pedile que "procese los comprobantes
+              pendientes" — va a leer cada foto y completar el gasto solo. Vos los confirmás después
+              en "Pendientes de revisar".
+            </p>
+
+            <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-6 text-center transition-colors hover:border-primary hover:bg-accent">
+              <Upload className="h-6 w-6 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">
+                {bulkFiles.length > 0 ? `${bulkFiles.length} archivo(s) seleccionado(s)` : "Elegí las fotos o PDFs"}
+              </span>
+              <input
+                type="file"
+                multiple
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={(e) => setBulkFiles(Array.from(e.target.files || []))}
+              />
+            </label>
+
+            {bulkFiles.length > 0 && (
+              <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+                {bulkFiles.map((f, i) => (
+                  <li key={i} className="truncate">{f.name}</li>
+                ))}
+              </ul>
+            )}
+
+            <Button
+              className="w-full"
+              onClick={handleBulkUpload}
+              disabled={isBulkUploading || bulkFiles.length === 0}
+            >
+              {isBulkUploading ? "Subiendo..." : `Subir ${bulkFiles.length || ""} comprobante(s)`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showPendingDialog} onOpenChange={setShowPendingDialog}>
         <DialogContent
           className="sm:max-w-2xl max-h-[90vh] overflow-y-auto border shadow-lg"
@@ -713,7 +822,14 @@ export default function ExpensesPage() {
                 {pendingExpenses.map((e) => (
                   <div key={e.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
                     <div className="min-w-0">
-                      <p className="font-medium truncate">{e.motivo}</p>
+                      <p className="font-medium truncate flex items-center gap-2">
+                        {e.motivo}
+                        {e.pendienteProcesamientoIA && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                            Esperando que la IA lo procese
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {e.moneda} {e.monto.toFixed(2)} · {new Date(e.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC" })}
                       </p>

@@ -74,6 +74,11 @@ model Expense {
   // todavía no lo confirmó/editó un humano. No aparece en las tablas normales.
   pendienteRevision  Boolean   @default(false)
 
+  // true en comprobantes subidos en lote (sin datos todavía) a la espera de
+  // que la IA los procese vía MCP. Se pone en false cuando se completan los
+  // datos (por la IA o a mano), quedando igual pendienteRevision hasta confirmar.
+  pendienteProcesamientoIA Boolean @default(false)
+
   @@map("expenses")
 }
 

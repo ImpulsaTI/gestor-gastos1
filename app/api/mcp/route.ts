@@ -8,13 +8,21 @@ const SERVER_VERSION = '1.0.0'
 const REGISTRAR_GASTO_TOOL = {
   name: 'registrar_gasto',
   description:
-    'Registra un gasto a partir de una factura/comprobante que el usuario compartió en el chat. ' +
-    'El gasto queda como "pendiente de revisión" en GestorGastos: la persona lo confirma o corrige ' +
-    'ahí (tarjeta usada, unidad de negocio, etc.) antes de que cuente como un gasto real. ' +
-    'Completá los campos que puedas leer de la factura; lo que no sepas, dejalo sin completar.',
+    'Registra o completa un gasto a partir de una factura/comprobante. El gasto queda como ' +
+    '"pendiente de revisión" en GestorGastos: la persona lo confirma o corrige ahí (tarjeta usada, ' +
+    'unidad de negocio, etc.) antes de que cuente como un gasto real. Completá los campos que ' +
+    'puedas leer de la factura; lo que no sepas, dejalo sin completar. ' +
+    'Si venís de procesar un comprobante ya subido (via listar_comprobantes_sin_procesar / ' +
+    'obtener_comprobante), pasá su expenseId acá para completarlo en vez de crear uno nuevo.',
   inputSchema: {
     type: 'object',
     properties: {
+      expenseId: {
+        type: 'string',
+        description:
+          'Si este gasto corresponde a un comprobante ya subido y obtenido con obtener_comprobante, ' +
+          'su id. Dejar vacío si es un gasto nuevo sin comprobante previo.',
+      },
       motivo: {
         type: 'string',
         description: 'Motivo breve del gasto (ej: nombre del proveedor o servicio facturado)',
@@ -50,18 +58,43 @@ const REGISTRAR_GASTO_TOOL = {
       },
       documentoBase64: {
         type: 'string',
-        description: 'Contenido del comprobante codificado en base64 (sin el prefijo data:), si está disponible',
+        description:
+          'Solo para gastos SIN comprobante previo (sin expenseId): contenido del comprobante en base64 ' +
+          '(sin el prefijo data:), si está disponible. Normalmente no vas a poder generarlo vos mismo ' +
+          '— en ese caso dejalo vacío.',
       },
-      documentoNombre: {
-        type: 'string',
-        description: 'Nombre de archivo del comprobante',
-      },
+      documentoNombre: { type: 'string', description: 'Nombre de archivo del comprobante' },
       documentoTipo: {
         type: 'string',
         description: 'Tipo MIME del comprobante, ej. image/jpeg o application/pdf',
       },
     },
     required: ['motivo', 'monto'],
+  },
+}
+
+const LISTAR_COMPROBANTES_TOOL = {
+  name: 'listar_comprobantes_sin_procesar',
+  description:
+    'Lista los comprobantes que el usuario subió en lote a GestorGastos y todavía no tienen los ' +
+    'datos extraídos (motivo, monto, fecha). Usar esto cuando el usuario pida procesar o cargar ' +
+    '"los comprobantes pendientes". Para cada uno, llamar a obtener_comprobante para verlo, y ' +
+    'después a registrar_gasto (con el mismo expenseId) para completarlo.',
+  inputSchema: { type: 'object', properties: {} },
+}
+
+const OBTENER_COMPROBANTE_TOOL = {
+  name: 'obtener_comprobante',
+  description:
+    'Devuelve la imagen de un comprobante subido (por su expenseId, de listar_comprobantes_sin_procesar) ' +
+    'para que puedas leerlo y extraer motivo, monto, moneda y fecha. Solo funciona con imágenes; si es ' +
+    'un PDF, avisá al usuario que ese no se puede leer automáticamente por ahora.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      expenseId: { type: 'string', description: 'Id del comprobante, obtenido de listar_comprobantes_sin_procesar' },
+    },
+    required: ['expenseId'],
   },
 }
 
@@ -89,6 +122,68 @@ function unauthorized(request: NextRequest) {
   )
 }
 
+async function handleListarComprobantes(userId: string) {
+  const pendientes = await prisma.expense.findMany({
+    where: { userId, pendienteProcesamientoIA: true },
+    select: { id: true, documentoNombre: true, documentoTipo: true, fechaCarga: true },
+    orderBy: { fechaCarga: 'asc' },
+  })
+
+  if (pendientes.length === 0) {
+    return { content: [{ type: 'text', text: 'No hay comprobantes pendientes de procesar.' }] }
+  }
+
+  const lista = pendientes
+    .map((p) => `- expenseId: ${p.id} | archivo: ${p.documentoNombre || 'sin nombre'} (${p.documentoTipo || 'desconocido'})`)
+    .join('\n')
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Hay ${pendientes.length} comprobante(s) pendientes de procesar:\n${lista}\n\nUsá obtener_comprobante con cada expenseId para leerlo, y registrar_gasto (con ese mismo expenseId) para completarlo.`,
+      },
+    ],
+  }
+}
+
+async function handleObtenerComprobante(userId: string, args: Record<string, unknown>) {
+  const expenseId = typeof args.expenseId === 'string' ? args.expenseId : ''
+  if (!expenseId) {
+    return { content: [{ type: 'text', text: 'Falta expenseId.' }], isError: true }
+  }
+
+  const expense = await prisma.expense.findUnique({ where: { id: expenseId } })
+  if (!expense || expense.userId !== userId) {
+    return { content: [{ type: 'text', text: 'Comprobante no encontrado.' }], isError: true }
+  }
+
+  if (!expense.documento || !expense.documentoTipo) {
+    return { content: [{ type: 'text', text: 'Este gasto no tiene un comprobante adjunto.' }], isError: true }
+  }
+
+  if (!expense.documentoTipo.startsWith('image/')) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `El comprobante "${expense.documentoNombre}" es de tipo ${expense.documentoTipo}, no se puede leer automáticamente (solo imágenes). Pedile al usuario que te pase los datos a mano, o completalo él directamente en "Pendientes de revisar".`,
+        },
+      ],
+      isError: true,
+    }
+  }
+
+  const base64 = expense.documento.split(',')[1] || expense.documento
+
+  return {
+    content: [
+      { type: 'text', text: `Comprobante ${expense.documentoNombre || expenseId} (expenseId: ${expense.id}):` },
+      { type: 'image', data: base64, mimeType: expense.documentoTipo },
+    ],
+  }
+}
+
 async function handleRegistrarGasto(userId: string, args: Record<string, unknown>) {
   const motivo = typeof args.motivo === 'string' ? args.motivo.trim() : ''
   const monto = typeof args.monto === 'number' ? args.monto : parseFloat(String(args.monto))
@@ -105,7 +200,48 @@ async function handleRegistrarGasto(userId: string, args: Record<string, unknown
   const fechaGasto = fechaGastoStr ? new Date(fechaGastoStr) : new Date()
 
   const canalPago = ['web', 'local', 'otro'].includes(String(args.canalPago)) ? (args.canalPago as string) : 'otro'
+  const detalle = typeof args.detalle === 'string' && args.detalle ? args.detalle : motivo
+  const canalPagoDetalle = typeof args.canalPagoDetalle === 'string' ? args.canalPagoDetalle : null
 
+  const expenseId = typeof args.expenseId === 'string' && args.expenseId ? args.expenseId : null
+
+  // Completa un comprobante ya subido en lote (conserva el archivo, llena los datos)
+  if (expenseId) {
+    const existing = await prisma.expense.findUnique({ where: { id: expenseId } })
+    if (!existing || existing.userId !== userId) {
+      return { content: [{ type: 'text', text: 'Ese expenseId no existe o no te pertenece.' }], isError: true }
+    }
+
+    const expense = await prisma.expense.update({
+      where: { id: expenseId },
+      data: {
+        fechaGasto,
+        motivo,
+        detalle,
+        monto,
+        montoEnPesos,
+        importeTotal: montoEnPesos,
+        moneda,
+        tipoCambio: tipoCambio ?? null,
+        canalPago,
+        canalPagoDetalle,
+        pendienteProcesamientoIA: false,
+      },
+    })
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Comprobante completado: "${expense.motivo}" por ${expense.moneda} ${expense.monto}. ` +
+            `Sigue pendiente de revisión en la app hasta que lo confirmes.`,
+        },
+      ],
+    }
+  }
+
+  // Gasto nuevo, sin comprobante previamente subido
   const documentoBase64 = typeof args.documentoBase64 === 'string' ? args.documentoBase64 : undefined
   const documentoTipo = typeof args.documentoTipo === 'string' ? args.documentoTipo : 'application/octet-stream'
   const documento = documentoBase64 ? `data:${documentoTipo};base64,${documentoBase64}` : undefined
@@ -115,14 +251,14 @@ async function handleRegistrarGasto(userId: string, args: Record<string, unknown
       userId,
       fechaGasto,
       motivo,
-      detalle: typeof args.detalle === 'string' && args.detalle ? args.detalle : motivo,
+      detalle,
       monto,
       montoEnPesos,
       importeTotal: montoEnPesos,
       moneda,
       tipoCambio: tipoCambio ?? null,
       canalPago,
-      canalPagoDetalle: typeof args.canalPagoDetalle === 'string' ? args.canalPagoDetalle : null,
+      canalPagoDetalle,
       tieneCuotas: false,
       documento,
       documentoNombre: typeof args.documentoNombre === 'string' ? args.documentoNombre : null,
@@ -183,29 +319,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ jsonrpc: '2.0', id, result: {} })
 
     case 'tools/list':
-      return NextResponse.json({ jsonrpc: '2.0', id, result: { tools: [REGISTRAR_GASTO_TOOL] } })
+      return NextResponse.json({
+        jsonrpc: '2.0',
+        id,
+        result: { tools: [REGISTRAR_GASTO_TOOL, LISTAR_COMPROBANTES_TOOL, OBTENER_COMPROBANTE_TOOL] },
+      })
 
     case 'tools/call': {
       const toolName = params?.name
       const args = params?.arguments || {}
 
-      if (toolName !== 'registrar_gasto') {
-        return NextResponse.json({
-          jsonrpc: '2.0',
-          id,
-          result: { content: [{ type: 'text', text: `Herramienta desconocida: ${toolName}` }], isError: true },
-        })
-      }
-
       try {
-        const result = await handleRegistrarGasto(userId, args)
+        let result
+        if (toolName === 'registrar_gasto') {
+          result = await handleRegistrarGasto(userId, args)
+        } else if (toolName === 'listar_comprobantes_sin_procesar') {
+          result = await handleListarComprobantes(userId)
+        } else if (toolName === 'obtener_comprobante') {
+          result = await handleObtenerComprobante(userId, args)
+        } else {
+          result = { content: [{ type: 'text', text: `Herramienta desconocida: ${toolName}` }], isError: true }
+        }
         return NextResponse.json({ jsonrpc: '2.0', id, result })
       } catch (error) {
-        console.error('Error en tools/call registrar_gasto:', error)
+        console.error(`Error en tools/call ${toolName}:`, error)
         return NextResponse.json({
           jsonrpc: '2.0',
           id,
-          result: { content: [{ type: 'text', text: 'Error interno al registrar el gasto.' }], isError: true },
+          result: { content: [{ type: 'text', text: 'Error interno al procesar la solicitud.' }], isError: true },
         })
       }
     }
