@@ -1991,12 +1991,12 @@ export default function AdminPage() {
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-muted/50 sticky top-0">
+                      <thead className="sticky top-0">
                         <tr>
-                          <th className="text-left p-2">Fecha</th>
-                          <th className="text-left p-2">Comercio</th>
-                          <th className="text-right p-2">Monto</th>
-                          <th className="text-left p-2">Gasto registrado</th>
+                          <th className="text-left p-2" style={{ backgroundColor: '#f1f5f9', opacity: 1 }}>Fecha</th>
+                          <th className="text-left p-2" style={{ backgroundColor: '#f1f5f9', opacity: 1 }}>Comercio</th>
+                          <th className="text-right p-2" style={{ backgroundColor: '#f1f5f9', opacity: 1 }}>Monto</th>
+                          <th className="text-left p-2" style={{ backgroundColor: '#f1f5f9', opacity: 1 }}>Gasto registrado</th>
                         </tr>
                       </thead>
                       <tbody>
