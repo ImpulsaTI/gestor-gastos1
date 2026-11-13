@@ -166,6 +166,11 @@ model CardSummary {
   tarjetaId          String?
   tarjeta            Tarjeta?  @relation(fields: [tarjetaId], references: [id], onDelete: SetNull)
 
+  // Tabla de conciliación generada por el conector MCP (admin le pide a Claude que
+  // matchee cada línea del resumen contra los gastos ya cargados por el usuario).
+  // Array de { fecha, comercio, monto, expenseId?, motivo?, estado }. Null = sin conciliar.
+  conciliacion       Json?
+
   @@map("card_summaries")
   @@index([userId, periodo])
 }

@@ -136,6 +136,69 @@ const OBTENER_COMPROBANTE_TOOL = {
   },
 }
 
+const LISTAR_RESUMENES_TOOL = {
+  name: 'listar_resumenes_tarjeta',
+  description:
+    'Lista los resúmenes de tarjeta que los administradores subieron a GestorGastos (uno por usuario y ' +
+    'período). Solo para administradores. Usar para encontrar el resumen que el admin quiere conciliar ' +
+    'con conciliar_resumen_tarjeta.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      userEmail: { type: 'string', description: 'Filtrar por email del usuario dueño de la tarjeta (opcional)' },
+      periodo: { type: 'string', description: 'Filtrar por período en formato YYYY-MM (opcional)' },
+    },
+  },
+}
+
+const OBTENER_RESUMEN_TOOL = {
+  name: 'obtener_resumen_tarjeta',
+  description:
+    'Devuelve la imagen de un resumen de tarjeta (por su cardSummaryId, de listar_resumenes_tarjeta) junto ' +
+    'con los gastos que ese usuario ya cargó en GestorGastos durante ese período, para que puedas comparar ' +
+    'cada línea del resumen (fecha, comercio, monto) contra esos gastos y armar la conciliación. Solo para ' +
+    'administradores. Solo funciona con resúmenes en imagen; si es un PDF, avisá que no se puede leer ' +
+    'automáticamente.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      cardSummaryId: { type: 'string', description: 'Id del resumen, obtenido de listar_resumenes_tarjeta' },
+    },
+    required: ['cardSummaryId'],
+  },
+}
+
+const GUARDAR_CONCILIACION_TOOL = {
+  name: 'guardar_conciliacion_resumen',
+  description:
+    'Guarda la tabla de conciliación de un resumen de tarjeta ya analizado con obtener_resumen_tarjeta: ' +
+    'una fila por cada movimiento del resumen, indicando si coincide con un gasto ya cargado (pasando su ' +
+    'expenseId) o si no tiene gasto registrado (sin_match). No modifica los gastos, solo arma la tabla para ' +
+    'que el admin la vea en GestorGastos, en "Resúmenes de Tarjeta" → Ver. Solo para administradores.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      cardSummaryId: { type: 'string', description: 'Id del resumen que estás conciliando' },
+      filas: {
+        type: 'array',
+        description: 'Una fila por cada movimiento del resumen, en el orden en que aparecen',
+        items: {
+          type: 'object',
+          properties: {
+            fecha: { type: 'string', description: 'Fecha del movimiento tal como figura en el resumen' },
+            comercio: { type: 'string', description: 'Comercio/descripción del movimiento tal como figura en el resumen' },
+            monto: { type: 'number', description: 'Monto del movimiento' },
+            expenseId: { type: 'string', description: 'Id del gasto de GestorGastos que coincide con esta línea, si encontraste uno' },
+            estado: { type: 'string', enum: ['coincide', 'sin_match'], description: '"coincide" si encontraste el gasto, "sin_match" si no' },
+          },
+          required: ['fecha', 'comercio', 'monto', 'estado'],
+        },
+      },
+    },
+    required: ['cardSummaryId', 'filas'],
+  },
+}
+
 async function authenticate(request: NextRequest): Promise<string | null> {
   const authHeader = request.headers.get('authorization') || ''
   const match = authHeader.match(/^Bearer\s+(.+)$/i)
@@ -158,6 +221,184 @@ function unauthorized(request: NextRequest) {
       },
     }
   )
+}
+
+async function requireAdmin(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { isAdmin: true } })
+  return !!user?.isAdmin
+}
+
+function parsePeriodoRango(periodo: string): { desde: Date; hasta: Date } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(periodo)
+  if (!match) return null
+  const anio = parseInt(match[1], 10)
+  const mes = parseInt(match[2], 10) // 1-12
+
+  // Margen de unos días para contemplar que el cierre de la tarjeta no
+  // coincide exactamente con el mes calendario del gasto.
+  const desde = new Date(Date.UTC(anio, mes - 2, 25))
+  const hasta = new Date(Date.UTC(anio, mes, 5))
+  return { desde, hasta }
+}
+
+async function handleListarResumenesTarjeta(userId: string, args: Record<string, unknown>) {
+  if (!(await requireAdmin(userId))) {
+    return { content: [{ type: 'text', text: 'Esta herramienta es solo para administradores.' }], isError: true }
+  }
+
+  const userEmail = typeof args.userEmail === 'string' ? args.userEmail.trim() : ''
+  const periodo = typeof args.periodo === 'string' ? args.periodo.trim() : ''
+
+  const resumenes = await prisma.cardSummary.findMany({
+    where: {
+      ...(periodo ? { periodo } : {}),
+      ...(userEmail ? { user: { email: userEmail } } : {}),
+    },
+    include: {
+      user: { select: { email: true, nombre: true } },
+      tarjeta: { select: { ultimos4: true } },
+    },
+    orderBy: { periodo: 'desc' },
+  })
+
+  if (resumenes.length === 0) {
+    return { content: [{ type: 'text', text: 'No hay resúmenes de tarjeta cargados con esos filtros.' }] }
+  }
+
+  const lista = resumenes
+    .map(
+      (r) =>
+        `- cardSummaryId: ${r.id} | usuario: ${r.user.nombre} (${r.user.email}) | período: ${r.periodo} | ` +
+        `tarjeta: ${r.tarjeta?.ultimos4 ? `****${r.tarjeta.ultimos4}` : 'sin asignar'} | ` +
+        `archivo: ${r.archivoNombre} | ${r.conciliacion ? 'ya conciliado' : 'sin conciliar'}`
+    )
+    .join('\n')
+
+  return {
+    content: [
+      { type: 'text', text: `Resúmenes encontrados:\n${lista}\n\nUsá obtener_resumen_tarjeta con el cardSummaryId para conciliar uno.` },
+    ],
+  }
+}
+
+async function handleObtenerResumenTarjeta(userId: string, args: Record<string, unknown>) {
+  if (!(await requireAdmin(userId))) {
+    return { content: [{ type: 'text', text: 'Esta herramienta es solo para administradores.' }], isError: true }
+  }
+
+  const cardSummaryId = typeof args.cardSummaryId === 'string' ? args.cardSummaryId : ''
+  if (!cardSummaryId) {
+    return { content: [{ type: 'text', text: 'Falta cardSummaryId.' }], isError: true }
+  }
+
+  const resumen = await prisma.cardSummary.findUnique({
+    where: { id: cardSummaryId },
+    include: { user: { select: { id: true, email: true, nombre: true } } },
+  })
+  if (!resumen) {
+    return { content: [{ type: 'text', text: 'Resumen no encontrado.' }], isError: true }
+  }
+
+  if (!resumen.archivoTipo.startsWith('image/')) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `El resumen "${resumen.archivoNombre}" es de tipo ${resumen.archivoTipo}, no se puede leer automáticamente (solo imágenes). Avisale al admin que lo concilie a mano.`,
+        },
+      ],
+      isError: true,
+    }
+  }
+
+  const rango = parsePeriodoRango(resumen.periodo)
+  const candidatos = await prisma.expense.findMany({
+    where: {
+      userId: resumen.userId,
+      pendienteRevision: false,
+      ...(resumen.tarjetaId ? { tarjetaId: resumen.tarjetaId } : {}),
+      ...(rango ? { fechaGasto: { gte: rango.desde, lte: rango.hasta } } : {}),
+    },
+    select: { id: true, fechaGasto: true, motivo: true, detalle: true, monto: true, moneda: true },
+    orderBy: { fechaGasto: 'asc' },
+  })
+
+  const listaCandidatos = candidatos.length
+    ? candidatos
+        .map(
+          (c) =>
+            `- expenseId: ${c.id} | ${c.fechaGasto.toISOString().slice(0, 10)} | ${c.motivo} (${c.detalle}) | ${c.moneda} ${c.monto}`
+        )
+        .join('\n')
+    : '(el usuario no tiene gastos cargados en ese período)'
+
+  const base64 = resumen.archivo.split(',')[1] || resumen.archivo
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          `Resumen de ${resumen.user.nombre} (${resumen.user.email}), período ${resumen.periodo} ` +
+          `(cardSummaryId: ${resumen.id}):\n\nGastos ya cargados por el usuario en ese período:\n${listaCandidatos}\n\n` +
+          `Leé cada línea del resumen (fecha, comercio, monto) y fijate si coincide con alguno de estos gastos ` +
+          `(mismo monto, fecha cercana). Después llamá a guardar_conciliacion_resumen con una fila por cada ` +
+          `línea del resumen.`,
+      },
+      { type: 'image', data: base64, mimeType: resumen.archivoTipo },
+    ],
+  }
+}
+
+async function handleGuardarConciliacion(userId: string, args: Record<string, unknown>) {
+  if (!(await requireAdmin(userId))) {
+    return { content: [{ type: 'text', text: 'Esta herramienta es solo para administradores.' }], isError: true }
+  }
+
+  const cardSummaryId = typeof args.cardSummaryId === 'string' ? args.cardSummaryId : ''
+  const filas = Array.isArray(args.filas) ? args.filas : null
+  if (!cardSummaryId || !filas) {
+    return { content: [{ type: 'text', text: 'Faltan cardSummaryId y/o filas.' }], isError: true }
+  }
+
+  const resumen = await prisma.cardSummary.findUnique({ where: { id: cardSummaryId } })
+  if (!resumen) {
+    return { content: [{ type: 'text', text: 'Resumen no encontrado.' }], isError: true }
+  }
+
+  // Si una fila trae expenseId, adjuntamos el motivo del gasto para mostrarlo sin otro join.
+  const expenseIds = filas.map((f: any) => f?.expenseId).filter((id: unknown): id is string => typeof id === 'string' && !!id)
+  const expensesById = expenseIds.length
+    ? Object.fromEntries(
+        (await prisma.expense.findMany({ where: { id: { in: expenseIds } }, select: { id: true, motivo: true } })).map((e) => [
+          e.id,
+          e.motivo,
+        ])
+      )
+    : {}
+
+  const filasGuardadas = filas.map((f: any) => ({
+    fecha: typeof f?.fecha === 'string' ? f.fecha : '',
+    comercio: typeof f?.comercio === 'string' ? f.comercio : '',
+    monto: typeof f?.monto === 'number' ? f.monto : parseFloat(f?.monto) || 0,
+    expenseId: typeof f?.expenseId === 'string' && f.expenseId ? f.expenseId : null,
+    motivoGasto: typeof f?.expenseId === 'string' ? expensesById[f.expenseId] || null : null,
+    estado: f?.estado === 'coincide' ? 'coincide' : 'sin_match',
+  }))
+
+  await prisma.cardSummary.update({ where: { id: cardSummaryId }, data: { conciliacion: filasGuardadas } })
+
+  const coinciden = filasGuardadas.filter((f) => f.estado === 'coincide').length
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          `Conciliación guardada: ${coinciden} de ${filasGuardadas.length} movimientos coinciden con un gasto ` +
+          `registrado. Ya se puede ver en GestorGastos, admin → Resúmenes de Tarjeta → Ver.`,
+      },
+    ],
+  }
 }
 
 async function handleListarComprobantes(userId: string) {
@@ -391,7 +632,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         jsonrpc: '2.0',
         id,
-        result: { tools: [REGISTRAR_GASTO_TOOL, LISTAR_COMPROBANTES_TOOL, OBTENER_COMPROBANTE_TOOL] },
+        result: {
+          tools: [
+            REGISTRAR_GASTO_TOOL,
+            LISTAR_COMPROBANTES_TOOL,
+            OBTENER_COMPROBANTE_TOOL,
+            LISTAR_RESUMENES_TOOL,
+            OBTENER_RESUMEN_TOOL,
+            GUARDAR_CONCILIACION_TOOL,
+          ],
+        },
       })
 
     case 'tools/call': {
@@ -406,6 +656,12 @@ export async function POST(request: NextRequest) {
           result = await handleListarComprobantes(userId)
         } else if (toolName === 'obtener_comprobante') {
           result = await handleObtenerComprobante(userId, args)
+        } else if (toolName === 'listar_resumenes_tarjeta') {
+          result = await handleListarResumenesTarjeta(userId, args)
+        } else if (toolName === 'obtener_resumen_tarjeta') {
+          result = await handleObtenerResumenTarjeta(userId, args)
+        } else if (toolName === 'guardar_conciliacion_resumen') {
+          result = await handleGuardarConciliacion(userId, args)
         } else {
           result = { content: [{ type: 'text', text: `Herramienta desconocida: ${toolName}` }], isError: true }
         }

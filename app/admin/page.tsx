@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { getCurrentUser, logout } from "@/lib/auth"
 import type { UserExpense, User, Tarjeta, Unidad, AdminTarjeta } from "@/lib/types"
-import { Receipt, LogOut, Eye, Printer, Filter, FileText, Download, Upload, CreditCard, Building2, Trash2, Plus, CalendarDays, X } from "lucide-react"
+import { Receipt, LogOut, Eye, Printer, Filter, FileText, Download, Upload, CreditCard, Building2, Trash2, Plus, CalendarDays, X, Bot, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -12,6 +12,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { usePdfPreviewUrl } from "@/hooks/use-pdf-preview-url"
+
+type ConciliacionFila = {
+  fecha: string
+  comercio: string
+  monto: number
+  expenseId: string | null
+  motivoGasto: string | null
+  estado: "coincide" | "sin_match"
+}
 
 type CardSummary = {
   id: string
@@ -22,6 +31,7 @@ type CardSummary = {
   descripcion?: string
   createdAt: string
   tarjeta?: { id: string; ultimos4: string; descripcion?: string }
+  conciliacion?: ConciliacionFila[] | null
 }
 
 export default function AdminPage() {
@@ -34,6 +44,19 @@ export default function AdminPage() {
   const [filterFacturadoA, setFilterFacturadoA] = useState<string>("all")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+  const [showMcpSetupDialog, setShowMcpSetupDialog] = useState(false)
+  const [mcpUrlCopied, setMcpUrlCopied] = useState(false)
+  const mcpUrl = typeof window !== "undefined" ? `${window.location.origin}/api/mcp` : ""
+
+  const handleCopyMcpUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpUrl)
+      setMcpUrlCopied(true)
+      setTimeout(() => setMcpUrlCopied(false), 2000)
+    } catch {
+      // Sin permiso de portapapeles, no pasa nada
+    }
+  }
   const [uniqueUsers, setUniqueUsers] = useState<{ id: string; name: string }[]>([])
 
   // Tarjetas y unidades
@@ -1205,10 +1228,21 @@ export default function AdminPage() {
                 <p className="text-sm text-white/90">Vista de todos los gastos</p>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={handleLogout} className="bg-white/10 border-white/30 text-white hover:bg-white/20">
-              <LogOut className="mr-2 h-4 w-4" />
-              Salir
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowMcpSetupDialog(true)}
+                className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+              >
+                <Bot className="mr-2 h-4 w-4" />
+                Conectar IA
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleLogout} className="bg-white/10 border-white/30 text-white hover:bg-white/20">
+                <LogOut className="mr-2 h-4 w-4" />
+                Salir
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -1934,6 +1968,43 @@ export default function AdminPage() {
                 </a>
               </div>
 
+              {selectedSummary.conciliacion && selectedSummary.conciliacion.length > 0 && (
+                <div className="rounded-lg border overflow-hidden">
+                  <div className="bg-muted px-3 py-2 text-sm font-medium">
+                    Conciliación con Claude ({selectedSummary.conciliacion.filter((f) => f.estado === "coincide").length} de{" "}
+                    {selectedSummary.conciliacion.length} coinciden)
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50 sticky top-0">
+                        <tr>
+                          <th className="text-left p-2">Fecha</th>
+                          <th className="text-left p-2">Comercio</th>
+                          <th className="text-right p-2">Monto</th>
+                          <th className="text-left p-2">Gasto registrado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedSummary.conciliacion.map((fila, i) => (
+                          <tr key={i} className="border-t">
+                            <td className="p-2">{fila.fecha}</td>
+                            <td className="p-2">{fila.comercio}</td>
+                            <td className="p-2 text-right">{fila.monto.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</td>
+                            <td className="p-2">
+                              {fila.estado === "coincide" ? (
+                                <span className="text-emerald-700">{fila.motivoGasto || "Coincide"}</span>
+                              ) : (
+                                <span className="text-amber-700">Sin gasto registrado</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {selectedSummary.archivoTipo?.startsWith("image/") ? (
                 <div className="rounded-lg border overflow-hidden">
                   <img
@@ -1961,6 +2032,51 @@ export default function AdminPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMcpSetupDialog} onOpenChange={setShowMcpSetupDialog}>
+        <DialogContent
+          className="sm:max-w-lg border shadow-lg"
+          style={{ backgroundColor: '#ffffff', backdropFilter: 'none', opacity: 1 }}
+        >
+          <DialogHeader style={{ backgroundColor: '#ffffff' }}>
+            <DialogTitle>Conectar un asistente de IA</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" style={{ backgroundColor: '#ffffff' }}>
+            <p className="text-sm text-muted-foreground">
+              Conectá Claude (con cuenta Pro) para que concilie resúmenes de tarjeta automáticamente:
+              lee el resumen que subiste, lo compara contra los gastos que cargó el usuario y te arma
+              la tabla de coincidencias, sin tocar los gastos.
+            </p>
+
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">1. Pegá este link en claude.ai</Label>
+              <div className="flex gap-2">
+                <Input value={mcpUrl} readOnly className="font-mono text-xs" />
+                <Button type="button" variant="outline" size="icon" onClick={handleCopyMcpUrl} title="Copiar">
+                  {mcpUrlCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <ol className="list-decimal space-y-2 pl-5 text-sm">
+              <li>
+                En <a href="https://claude.ai/new?modal=add-custom-connector#customize/connectors" target="_blank" rel="noopener noreferrer" className="text-primary underline">Claude Conectores</a>,
+                tocá <strong>Add custom connector</strong>.
+              </li>
+              <li>Pegá el link de arriba y confirmá.</li>
+              <li>Te va a pedir iniciar sesión: usá tu mismo email y contraseña (o Microsoft) de GestorGastos.</li>
+              <li>
+                Subí el resumen de tarjeta acá como siempre ("Subir Resumen"), y después en el chat
+                pedile algo como: "conciliá el resumen de octubre de Oscar Diaz".
+              </li>
+              <li>
+                Claude lee el resumen, lo compara con los gastos ya cargados y guarda la tabla. La vas
+                a ver entrando a "Ver Resúmenes" → "Ver" de ese resumen.
+              </li>
+            </ol>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
