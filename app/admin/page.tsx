@@ -541,13 +541,16 @@ export default function AdminPage() {
     if (!user) return;
 
     try {
-      const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-      console.log('Generando reporte para:', userName, 'Mes:', currentMonth);
-      
-      const response = await fetch(`/api/reports/user?userId=${userId}&month=${currentMonth}&adminUserId=${user.id}`);
-      const reportData = await response.json();
+      // Respeta los mismos filtros que están puestos en la tabla (fecha, unidad,
+      // facturado a). Antes ignoraba todo y pedía siempre el mes actual.
+      const params = new URLSearchParams({ userId, adminUserId: user.id });
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo) params.set('dateTo', dateTo);
+      if (filterUnidad !== 'all') params.set('unidadId', filterUnidad);
+      if (filterFacturadoA !== 'all') params.set('facturadoAId', filterFacturadoA);
 
-      console.log('Datos del reporte:', reportData);
+      const response = await fetch(`/api/reports/user?${params.toString()}`);
+      const reportData = await response.json();
 
       if (reportData.success) {
         const reportHtml = generateReportHTML(reportData.data, userName);

@@ -5,7 +5,10 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
-    const month = searchParams.get('month'); // YYYY-MM format
+    const dateFrom = searchParams.get('dateFrom'); // YYYY-MM-DD
+    const dateTo = searchParams.get('dateTo'); // YYYY-MM-DD
+    const unidadId = searchParams.get('unidadId'); // unidad de la tarjeta
+    const facturadoAId = searchParams.get('facturadoAId'); // unidad destino
     const adminUserId = searchParams.get('adminUserId');
 
     if (!userId || !adminUserId) {
@@ -47,38 +50,32 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Primero obtener todos los gastos del usuario para verificar
-    const allUserExpenses = await prisma.expense.findMany({
+    // Gastos del usuario, respetando exactamente los mismos filtros que tiene
+    // puestos el admin en la tabla (fecha, unidad de tarjeta, facturado a).
+    // A diferencia de la versión anterior, si no hay gastos con esos filtros
+    // el reporte muestra 0 — nunca "cae" a mostrar todos los gastos del usuario.
+    const expenses = await prisma.expense.findMany({
       where: {
-        userId: userId
+        userId,
+        pendienteRevision: false,
+        ...(dateFrom || dateTo
+          ? {
+              fechaGasto: {
+                ...(dateFrom ? { gte: new Date(`${dateFrom}T00:00:00.000Z`) } : {}),
+                ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59.999Z`) } : {}),
+              },
+            }
+          : {}),
+        ...(unidadId ? { tarjeta: unidadId === 'none' ? { unidadId: null } : { unidadId } } : {}),
+        ...(facturadoAId ? { unidadDestinoId: facturadoAId === 'none' ? null : facturadoAId } : {}),
       },
-      orderBy: { fechaGasto: 'desc' }
+      orderBy: { fechaGasto: 'desc' },
     });
 
-    // Construir filtros de fecha
-    let expenses = allUserExpenses;
-    let actualPeriod = 'Todos los períodos';
-
-    if (month && allUserExpenses.length > 0) {
-      const startDate = new Date(`${month}-01T00:00:00.000Z`);
-      const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
-      endDate.setHours(23, 59, 59, 999);
-      
-      const monthlyExpenses = allUserExpenses.filter(expense => {
-        const expenseDate = new Date(expense.fechaGasto);
-        return expenseDate >= startDate && expenseDate <= endDate;
-      });
-
-      // Si hay gastos en el mes solicitado, usarlos; sino usar todos
-      if (monthlyExpenses.length > 0) {
-        expenses = monthlyExpenses;
-        actualPeriod = `${month} (${monthlyExpenses.length} gastos)`;
-      } else {
-        actualPeriod = `Todos los períodos (${allUserExpenses.length} gastos) - No hay gastos en ${month}`;
-      }
-    } else {
-      actualPeriod = `Todos los períodos (${allUserExpenses.length} gastos)`;
-    }
+    const actualPeriod =
+      dateFrom || dateTo
+        ? `${dateFrom || '...'} a ${dateTo || '...'} (${expenses.length} gastos)`
+        : `Todos los períodos (${expenses.length} gastos)`;
 
     // Calcular estadísticas
     const totalAmount = expenses.reduce((sum, expense) => sum + expense.importeTotal, 0);
@@ -135,11 +132,6 @@ export async function GET(request: NextRequest) {
           topExpenses
         },
         expenses,
-        debug: {
-          requestedMonth: month,
-          totalUserExpenses: allUserExpenses.length,
-          filteredExpenses: expenses.length
-        }
       }
     });
 
