@@ -258,8 +258,17 @@ export default function AdminPage() {
         return true
       })
     }
+    result = [...result].sort((a, b) => (a.fechaGasto < b.fechaGasto ? 1 : a.fechaGasto > b.fechaGasto ? -1 : 0))
     setFilteredExpenses(result)
   }, [filterUser, filterUnidad, filterFacturadoA, dateFrom, dateTo, allExpenses])
+
+  // Cuando se filtra por un usuario puntual, las listas de "Resúmenes de
+  // Tarjeta" y "Reportes de Usuarios" muestran solo ese usuario, no los 7.
+  const visibleUsersForLists = filterUser === "all" ? uniqueUsers : uniqueUsers.filter((u) => u.id === filterUser)
+
+  // Ídem para "Reportes por Unidad" cuando se filtra una unidad puntual.
+  const visibleUnidadesForLists =
+    filterUnidad === "all" || filterUnidad === "none" ? unidades : unidades.filter((u) => u.id === filterUnidad)
 
   const handleLogout = () => {
     logout()
@@ -865,8 +874,11 @@ export default function AdminPage() {
     if (!user) return
 
     try {
-      const currentMonth = new Date().toISOString().slice(0, 7)
-      const response = await fetch(`/api/reports/unit?unidadId=${unidadId}&month=${currentMonth}&adminUserId=${user.id}`)
+      const params = new URLSearchParams({ unidadId, adminUserId: user.id })
+      if (dateFrom) params.set('dateFrom', dateFrom)
+      if (dateTo) params.set('dateTo', dateTo)
+
+      const response = await fetch(`/api/reports/unit?${params.toString()}`)
       const reportData = await response.json()
 
       if (reportData.success) {
@@ -1407,7 +1419,7 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {uniqueUsers.map((u) => (
+              {visibleUsersForLists.map((u) => (
                 <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border">
                   <span className="font-medium">{u.name}</span>
                   <div className="flex gap-2">
@@ -1443,7 +1455,7 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {uniqueUsers.map((u) => (
+              {visibleUsersForLists.map((u) => (
                 <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border">
                   <span className="font-medium">{u.name}</span>
                   <Button
@@ -1477,7 +1489,7 @@ export default function AdminPage() {
               </p>
             ) : (
               <div className="space-y-3">
-                {unidades.map((u) => (
+                {visibleUnidadesForLists.map((u) => (
                   <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border">
                     <span className="font-medium">{u.nombre}</span>
                     <Button

@@ -5,7 +5,8 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const unidadId = searchParams.get('unidadId');
-    const month = searchParams.get('month'); // YYYY-MM
+    const dateFrom = searchParams.get('dateFrom'); // YYYY-MM-DD
+    const dateTo = searchParams.get('dateTo'); // YYYY-MM-DD
     const adminUserId = searchParams.get('adminUserId');
 
     if (!unidadId || !adminUserId) {
@@ -32,10 +33,23 @@ export async function GET(request: NextRequest) {
     });
     const tarjetaIds = tarjetasDeLaUnidad.map((t) => t.id);
 
-    // Todos los gastos hechos con tarjetas de esta unidad
-    const allExpenses = tarjetaIds.length
+    // Gastos hechos con tarjetas de esta unidad, respetando el mismo rango de
+    // fechas que tenga puesto el admin (si no hay gastos en ese rango, el
+    // reporte muestra 0 — no cae a mostrar todos los períodos).
+    const expenses = tarjetaIds.length
       ? await prisma.expense.findMany({
-          where: { tarjetaId: { in: tarjetaIds } },
+          where: {
+            tarjetaId: { in: tarjetaIds },
+            pendienteRevision: false,
+            ...(dateFrom || dateTo
+              ? {
+                  fechaGasto: {
+                    ...(dateFrom ? { gte: new Date(`${dateFrom}T00:00:00.000Z`) } : {}),
+                    ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59.999Z`) } : {}),
+                  },
+                }
+              : {}),
+          },
           include: {
             user: { select: { id: true, nombre: true, email: true } },
             tarjeta: { select: { id: true, ultimos4: true, descripcion: true } },
@@ -45,28 +59,10 @@ export async function GET(request: NextRequest) {
         })
       : [];
 
-    let expenses = allExpenses;
-    let actualPeriod = 'Todos los períodos';
-
-    if (month && allExpenses.length > 0) {
-      const startDate = new Date(`${month}-01T00:00:00.000Z`);
-      const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
-      endDate.setHours(23, 59, 59, 999);
-
-      const monthlyExpenses = allExpenses.filter((expense) => {
-        const expenseDate = new Date(expense.fechaGasto);
-        return expenseDate >= startDate && expenseDate <= endDate;
-      });
-
-      if (monthlyExpenses.length > 0) {
-        expenses = monthlyExpenses;
-        actualPeriod = `${month} (${monthlyExpenses.length} gastos)`;
-      } else {
-        actualPeriod = `Todos los períodos (${allExpenses.length} gastos) - No hay gastos en ${month}`;
-      }
-    } else {
-      actualPeriod = `Todos los períodos (${allExpenses.length} gastos)`;
-    }
+    const actualPeriod =
+      dateFrom || dateTo
+        ? `${dateFrom || '...'} a ${dateTo || '...'} (${expenses.length} gastos)`
+        : `Todos los períodos (${expenses.length} gastos)`;
 
     // Agrupar por unidad de destino
     type GroupEntry = { unidadId: string | null; unidadNombre: string; total: number; count: number; expenses: typeof expenses };
