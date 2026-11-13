@@ -90,6 +90,14 @@ export default function ExpensesPage() {
     }
   }
 
+  const formatCurrency = (amount: number, currency: string) => {
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: currency === "ARS" ? "ARS" : "USD",
+      minimumFractionDigits: 2,
+    }).format(amount)
+  }
+
   const loadUserExpenses = async (userId: string) => {
     try {
       const response = await fetch(`/api/expenses?userId=${userId}`)
@@ -900,7 +908,7 @@ export default function ExpensesPage() {
                         )}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {e.moneda} {e.monto.toFixed(2)} · {new Date(e.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC" })}
+                        {formatCurrency(e.monto, e.moneda)} · {new Date(e.fechaGasto).toLocaleDateString("es-AR", { timeZone: "UTC" })}
                       </p>
                       {e.unidadDestino ? (
                         <p className="text-xs text-emerald-700 truncate">
@@ -972,7 +980,7 @@ export default function ExpensesPage() {
                         )}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {r.moneda} {r.monto.toFixed(2)} · día {r.diaDelMes} de cada mes
+                        {formatCurrency(r.monto, r.moneda)} · día {r.diaDelMes} de cada mes
                         {r.tarjeta && <> · **** {r.tarjeta.ultimos4}</>}
                       </p>
                     </div>
@@ -1043,7 +1051,7 @@ export default function ExpensesPage() {
                     )}
                   </div>
                   <p className="font-semibold">
-                    {item.moneda} {item.monto.toFixed(2)}
+                    {formatCurrency(item.monto, item.moneda)}
                   </p>
                 </div>
               ))

@@ -374,11 +374,11 @@ export default function AdminPage() {
           <div class="grid">
             <div class="section">
               <div class="section-title">MONTO</div>
-              <div class="section-content">${expense.moneda} ${expense.monto.toFixed(2)}</div>
+              <div class="section-content">${formatCurrency(expense.monto, expense.moneda)}</div>
             </div>
             <div class="section">
               <div class="section-title">IMPORTE TOTAL</div>
-              <div class="section-content">${expense.moneda} ${expense.importeTotal.toFixed(2)}</div>
+              <div class="section-content">${formatCurrency(expense.importeTotal, expense.moneda)}</div>
             </div>
           </div>
 
@@ -1516,7 +1516,7 @@ export default function AdminPage() {
                           <p className="text-sm text-muted-foreground">{expense.userName}</p>
                         </div>
                         <Badge variant="secondary">
-                          {expense.moneda} {expense.importeTotal.toFixed(2)}
+                          {formatCurrency(expense.importeTotal, expense.moneda)}
                         </Badge>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">

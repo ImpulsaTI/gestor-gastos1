@@ -420,7 +420,7 @@ export function ExpenseForm({
                   ${montoEnPesos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ARS
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {formData.monto} {formData.moneda} × {formData.tipoCambio} = {montoEnPesos.toFixed(2)} ARS
+                  {formData.monto} {formData.moneda} × {formData.tipoCambio} = {montoEnPesos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ARS
                 </p>
               </div>
             </div>
