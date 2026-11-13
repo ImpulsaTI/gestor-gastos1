@@ -33,6 +33,26 @@ async function matchUnidadPorRazonSocial(razonSocial: string): Promise<{ id: str
   return parciales.length === 1 ? parciales[0] : null
 }
 
+// Arma el content block para devolverle un archivo a Claude dentro de un tool
+// result: imagen como siempre, PDF como "resource" embebido (Claude lo puede
+// leer como documento), y null para cualquier otro tipo no soportado.
+function archivoAContentBlock(tipo: string, base64: string, nombre: string): Record<string, unknown> | null {
+  if (tipo.startsWith('image/')) {
+    return { type: 'image', data: base64, mimeType: tipo }
+  }
+  if (tipo === 'application/pdf') {
+    return {
+      type: 'resource',
+      resource: {
+        uri: `gestorgastos://archivo/${encodeURIComponent(nombre)}`,
+        mimeType: tipo,
+        blob: base64,
+      },
+    }
+  }
+  return null
+}
+
 const REGISTRAR_GASTO_TOOL = {
   name: 'registrar_gasto',
   description:
@@ -124,9 +144,8 @@ const LISTAR_COMPROBANTES_TOOL = {
 const OBTENER_COMPROBANTE_TOOL = {
   name: 'obtener_comprobante',
   description:
-    'Devuelve la imagen de un comprobante subido (por su expenseId, de listar_comprobantes_sin_procesar) ' +
-    'para que puedas leerlo y extraer motivo, monto, moneda y fecha. Solo funciona con imágenes; si es ' +
-    'un PDF, avisá al usuario que ese no se puede leer automáticamente por ahora.',
+    'Devuelve el archivo de un comprobante subido (por su expenseId, de listar_comprobantes_sin_procesar) ' +
+    'para que puedas leerlo y extraer motivo, monto, moneda y fecha. Funciona con imágenes y PDF.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -154,11 +173,10 @@ const LISTAR_RESUMENES_TOOL = {
 const OBTENER_RESUMEN_TOOL = {
   name: 'obtener_resumen_tarjeta',
   description:
-    'Devuelve la imagen de un resumen de tarjeta (por su cardSummaryId, de listar_resumenes_tarjeta) junto ' +
+    'Devuelve el archivo de un resumen de tarjeta (por su cardSummaryId, de listar_resumenes_tarjeta) junto ' +
     'con los gastos que ese usuario ya cargó en GestorGastos durante ese período, para que puedas comparar ' +
     'cada línea del resumen (fecha, comercio, monto) contra esos gastos y armar la conciliación. Solo para ' +
-    'administradores. Solo funciona con resúmenes en imagen; si es un PDF, avisá que no se puede leer ' +
-    'automáticamente.',
+    'administradores. Funciona con resúmenes en imagen y en PDF.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -299,12 +317,15 @@ async function handleObtenerResumenTarjeta(userId: string, args: Record<string, 
     return { content: [{ type: 'text', text: 'Resumen no encontrado.' }], isError: true }
   }
 
-  if (!resumen.archivoTipo.startsWith('image/')) {
+  const base64 = resumen.archivo.split(',')[1] || resumen.archivo
+  const bloqueArchivo = archivoAContentBlock(resumen.archivoTipo, base64, resumen.archivoNombre)
+
+  if (!bloqueArchivo) {
     return {
       content: [
         {
           type: 'text',
-          text: `El resumen "${resumen.archivoNombre}" es de tipo ${resumen.archivoTipo}, no se puede leer automáticamente (solo imágenes). Avisale al admin que lo concilie a mano.`,
+          text: `El resumen "${resumen.archivoNombre}" es de tipo ${resumen.archivoTipo}, no se puede leer automáticamente (solo imágenes y PDF). Avisale al admin que lo concilie a mano.`,
         },
       ],
       isError: true,
@@ -332,8 +353,6 @@ async function handleObtenerResumenTarjeta(userId: string, args: Record<string, 
         .join('\n')
     : '(el usuario no tiene gastos cargados en ese período)'
 
-  const base64 = resumen.archivo.split(',')[1] || resumen.archivo
-
   return {
     content: [
       {
@@ -345,7 +364,7 @@ async function handleObtenerResumenTarjeta(userId: string, args: Record<string, 
           `(mismo monto, fecha cercana). Después llamá a guardar_conciliacion_resumen con una fila por cada ` +
           `línea del resumen.`,
       },
-      { type: 'image', data: base64, mimeType: resumen.archivoTipo },
+      bloqueArchivo,
     ],
   }
 }
@@ -441,24 +460,25 @@ async function handleObtenerComprobante(userId: string, args: Record<string, unk
     return { content: [{ type: 'text', text: 'Este gasto no tiene un comprobante adjunto.' }], isError: true }
   }
 
-  if (!expense.documentoTipo.startsWith('image/')) {
+  const base64 = expense.documento.split(',')[1] || expense.documento
+  const bloque = archivoAContentBlock(expense.documentoTipo, base64, expense.documentoNombre || expenseId)
+
+  if (!bloque) {
     return {
       content: [
         {
           type: 'text',
-          text: `El comprobante "${expense.documentoNombre}" es de tipo ${expense.documentoTipo}, no se puede leer automáticamente (solo imágenes). Pedile al usuario que te pase los datos a mano, o completalo él directamente en "Pendientes de revisar".`,
+          text: `El comprobante "${expense.documentoNombre}" es de tipo ${expense.documentoTipo}, no se puede leer automáticamente (solo imágenes y PDF). Pedile al usuario que te pase los datos a mano, o completalo él directamente en "Pendientes de revisar".`,
         },
       ],
       isError: true,
     }
   }
 
-  const base64 = expense.documento.split(',')[1] || expense.documento
-
   return {
     content: [
       { type: 'text', text: `Comprobante ${expense.documentoNombre || expenseId} (expenseId: ${expense.id}):` },
-      { type: 'image', data: base64, mimeType: expense.documentoTipo },
+      bloque,
     ],
   }
 }
