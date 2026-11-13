@@ -13,6 +13,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { usePdfPreviewUrl } from "@/hooks/use-pdf-preview-url"
 
+type ConciliacionFila = {
+  fecha: string
+  comercio: string
+  monto: number
+  expenseId: string | null
+  motivoGasto: string | null
+  estado: "coincide" | "sin_match"
+}
+
 type CardSummary = {
   id: string
   periodo: string
@@ -22,6 +31,7 @@ type CardSummary = {
   descripcion?: string
   createdAt: string
   tarjeta?: { id: string; ultimos4: string; descripcion?: string }
+  conciliacion?: ConciliacionFila[] | null
 }
 
 type HistorialItem = {
@@ -1092,6 +1102,43 @@ export default function ExpensesPage() {
                   </Button>
                 </a>
               </div>
+
+              {selectedSummary.conciliacion && selectedSummary.conciliacion.length > 0 && (
+                <div className="rounded-lg border overflow-hidden">
+                  <div className="bg-muted px-3 py-2 text-sm font-medium">
+                    Conciliación con Claude ({selectedSummary.conciliacion.filter((f) => f.estado === "coincide").length} de{" "}
+                    {selectedSummary.conciliacion.length} coinciden)
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0">
+                        <tr>
+                          <th className="text-left p-2" style={{ backgroundColor: '#f1f5f9', opacity: 1 }}>Fecha</th>
+                          <th className="text-left p-2" style={{ backgroundColor: '#f1f5f9', opacity: 1 }}>Comercio</th>
+                          <th className="text-right p-2" style={{ backgroundColor: '#f1f5f9', opacity: 1 }}>Monto</th>
+                          <th className="text-left p-2" style={{ backgroundColor: '#f1f5f9', opacity: 1 }}>Gasto registrado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedSummary.conciliacion.map((fila, i) => (
+                          <tr key={i} className="border-t">
+                            <td className="p-2">{fila.fecha}</td>
+                            <td className="p-2">{fila.comercio}</td>
+                            <td className="p-2 text-right">{fila.monto.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</td>
+                            <td className="p-2">
+                              {fila.estado === "coincide" ? (
+                                <span className="text-emerald-700">{fila.motivoGasto || "Coincide"}</span>
+                              ) : (
+                                <span className="text-amber-700">Sin gasto registrado</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {selectedSummary.archivoTipo?.startsWith("image/") ? (
                 <div className="rounded-lg border overflow-hidden">

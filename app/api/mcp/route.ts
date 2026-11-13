@@ -189,17 +189,22 @@ const OBTENER_RESUMEN_TOOL = {
 const GUARDAR_CONCILIACION_TOOL = {
   name: 'guardar_conciliacion_resumen',
   description:
-    'Guarda la tabla de conciliación de un resumen de tarjeta ya analizado con obtener_resumen_tarjeta: ' +
-    'una fila por cada movimiento del resumen, indicando si coincide con un gasto ya cargado (pasando su ' +
-    'expenseId) o si no tiene gasto registrado (sin_match). No modifica los gastos, solo arma la tabla para ' +
-    'que el admin la vea en GestorGastos, en "Resúmenes de Tarjeta" → Ver. Solo para administradores.',
+    'Guarda la tabla de conciliación de un resumen de tarjeta ya analizado con obtener_resumen_tarjeta. ' +
+    'IMPORTANTE: tiene que incluir TODOS y cada uno de los movimientos que aparecen en el resumen, uno por ' +
+    'fila, sin saltear ninguno — tanto los que coinciden con un gasto ya cargado (pasando su expenseId, ' +
+    'estado "coincide") como los que NO tienen gasto registrado (estado "sin_match"). Las filas sin_match son ' +
+    'justamente lo más útil de la tabla: le muestran al admin qué le falta cargar al usuario. No modifica ' +
+    'los gastos, solo arma la tabla para que el admin la vea en GestorGastos, en "Resúmenes de Tarjeta" → Ver. ' +
+    'Solo para administradores.',
   inputSchema: {
     type: 'object',
     properties: {
       cardSummaryId: { type: 'string', description: 'Id del resumen que estás conciliando' },
       filas: {
         type: 'array',
-        description: 'Una fila por cada movimiento del resumen, en el orden en que aparecen',
+        description:
+          'Una fila por CADA movimiento del resumen, en el mismo orden en que aparecen, sin omitir ninguno ' +
+          '(ni los que coinciden ni los que no)',
         items: {
           type: 'object',
           properties: {
@@ -360,9 +365,11 @@ async function handleObtenerResumenTarjeta(userId: string, args: Record<string, 
         text:
           `Resumen de ${resumen.user.nombre} (${resumen.user.email}), período ${resumen.periodo} ` +
           `(cardSummaryId: ${resumen.id}):\n\nGastos ya cargados por el usuario en ese período:\n${listaCandidatos}\n\n` +
-          `Leé cada línea del resumen (fecha, comercio, monto) y fijate si coincide con alguno de estos gastos ` +
-          `(mismo monto, fecha cercana). Después llamá a guardar_conciliacion_resumen con una fila por cada ` +
-          `línea del resumen.`,
+          `Leé TODAS las líneas del resumen, una por una, de punta a punta (no te saltees ninguna aunque se ` +
+          `repitan comercios o montos) y para cada una fijate si coincide con alguno de estos gastos (mismo ` +
+          `monto, fecha cercana). Después llamá a guardar_conciliacion_resumen con una fila por CADA línea del ` +
+          `resumen, incluyendo las que no encontraste gasto (estado sin_match) — esas son las que le interesan ` +
+          `al admin para saber qué le falta cargar al usuario.`,
       },
       bloqueArchivo,
     ],
